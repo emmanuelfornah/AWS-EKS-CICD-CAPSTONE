@@ -6,7 +6,7 @@
 
 ## Executive Summary
 
-AnyCompany Web Consultancy was contracted to build and deploy a production-grade appointment scheduling application for a hair salon client. The solution required transforming an incomplete Django application into a fully automated, cloud-native platform capable of reliable deployments, automated quality enforcement, and zero-downtime updates.
+This project delivers a production-grade appointment scheduling application for a hair salon client. The solution transforms an incomplete Django application into a fully automated, cloud-native platform capable of reliable deployments, automated quality enforcement, and zero-downtime updates.
 
 The delivered solution runs on Amazon EKS, backed by Amazon RDS and DynamoDB, deployed through a fully automated AWS CI/CD pipeline. Every code change is automatically tested, containerized, and deployed — with full rollback capability — without any manual intervention.
 
@@ -272,7 +272,7 @@ spec:
 - Announcements (promotions, closures, holiday hours) update instantly via DynamoDB
 - System handles multiple concurrent users reliably on RDS
 
-### For AnyCompany Web Consultancy
+### Operational Efficiency
 
 - Repeatable, documented deployment process for future clients
 - Automated quality enforcement reduces bug escape rate to near zero
@@ -304,12 +304,10 @@ The automated system enables:
 
 ## Conclusion
 
-The delivered platform transforms a manually managed, error-prone process into a reliable, automated system. The hair salon client now has a professional booking platform with enterprise-grade reliability. AnyCompany Web Consultancy has a proven, repeatable cloud-native deployment blueprint built entirely on AWS-native services.
+The delivered platform transforms a manually managed, error-prone process into a reliable, automated system. The hair salon client now has a professional booking platform with enterprise-grade reliability — a proven, repeatable cloud-native deployment blueprint built entirely on AWS-native services.
 
 Every design decision — IAM auth, multi-tag ECR strategy, separate buildspec files, dual rollback approach — was made with production reliability and operational simplicity as the primary goals.
 
 ---
 
-*Emmanuel Fornah — Cloud Developer, AnyCompany Web Consultancy*
-
-*AWS Cloud Institute — Cloud Developer Capstone Project*
+*Emmanuel Fornah — Cloud Developer*

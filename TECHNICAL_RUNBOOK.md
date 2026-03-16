@@ -68,7 +68,7 @@ Git Push → CodePipeline → CodeBuild (Test) → CodeBuild (Build) → ECR →
 | RDS User | `appointments_web` |
 | DynamoDB Table | `DEV_Announcement` |
 | Kubernetes Service Account | `appointments-sa` |
-| EKS Subnets | `LabProtectedSubnet`, `LabProtectedSubnet2` |
+| EKS Subnets | Private subnets (2 AZs) |
 
 ---
 
@@ -392,7 +392,7 @@ aws elbv2 describe-target-groups --query 'TargetGroups[*].[TargetGroupName,Targe
 
 # Check subnet tags
 aws ec2 describe-subnets --filters "Name=tag:kubernetes.io/role/elb,Values=1"
-# Both LabProtectedSubnet and LabProtectedSubnet2 must appear
+# Both private subnets must appear (one per AZ)
 
 # Check ALB controller pods
 kubectl get pods -n kube-system | grep aws-load-balancer
