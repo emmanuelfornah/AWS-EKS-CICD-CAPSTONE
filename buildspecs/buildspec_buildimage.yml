@@ -17,7 +17,7 @@ phases:
       - docker tag appointments-app-container:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository:latest
       - docker tag appointments-app-container:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository:staging-test-image
       - docker tag appointments-app-container:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository:${CODEBUILD_RESOLVED_SOURCE_VERSION}
-      - docker tag appointments-app-container:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository:background-color-updated-to-orange
+      - docker tag appointments-app-container:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository:background-color-updated-to-cadetblue
       - echo Build completed on `date`
     
   post_build:
