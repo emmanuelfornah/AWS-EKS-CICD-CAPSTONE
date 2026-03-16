@@ -1,14 +1,14 @@
-﻿apiVersion: v1
+apiVersion: v1
 kind: Service
 metadata:
-  name: appointments-service
   labels:
     app: appointments-deployment
+  name: appointments-service
 spec:
-  type: LoadBalancer
   ports:
   - port: 80
     protocol: TCP
-    targetPort: 8088
+    targetPort: 8080
   selector:
     app: appointments-deployment
+  type: NodePort
