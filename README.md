@@ -22,13 +22,43 @@ Every `git push` automatically:
 
 ## 📸 Screenshots
 
-| Application Live | Pipeline — All Stages Green |
-|---|---|
-| ![App](screenshots/our_website.png) | ![Pipeline](screenshots/pipeline_4stages.png) |
+### Development & CI/CD Setup
 
-| EKS Deployment | Application via ALB |
+| IDE Workspace | CodeCommit Repository |
 |---|---|
-| ![EKS](screenshots/eks_deployed.png) | ![ALB](screenshots/app_via_alb.png) |
+| ![IDE](screenshots/01_ide_workspace_setup.png) | ![Repo](screenshots/02_codecommit_repository.png) |
+
+| Application — Initial Launch | Appointment Timeslot Selection |
+|---|---|
+| ![App](screenshots/03_application_initial_launch.png) | ![Timeslots](screenshots/04_appointment_timeslot_selection.png) |
+
+### Test Coverage & Pipeline
+
+| 100% Test Coverage | Coverage — Views Module |
+|---|---|
+| ![100%](screenshots/05_unit_test_coverage_100.png) | ![Views](screenshots/06_coverage_views_module.png) |
+
+| Full Coverage Report | CodeBuild Succeeded |
+|---|---|
+| ![Full](screenshots/07_coverage_full_report.png) | ![Build](screenshots/09_codebuild_succeeded.png) |
+
+| Pipeline — All Stages Green |
+|---|
+| ![Pipeline](screenshots/10_pipeline_all_stages_green.png) |
+
+### Troubleshooting & Rollbacks
+
+| Pod Error Logs — Region Misconfiguration | Region Fix Deployed Successfully |
+|---|---|
+| ![Logs](screenshots/11_kubectl_pod_error_logs.png) | ![Fix](screenshots/12_region_fix_deployed.png) |
+
+| Application — Orange Background | Pipeline — Orange Build Succeeded |
+|---|---|
+| ![Orange](screenshots/13_app_orange_background.png) | ![Pipeline](screenshots/14_pipeline_orange_build_succeeded.png) |
+
+| Application — Cadetblue Background | Rollback to Orange |
+|---|---|
+| ![Cadetblue](screenshots/15_app_cadetblue_background.png) | ![Rollback](screenshots/16_rollback_to_orange.png) |
 
 ---
 
