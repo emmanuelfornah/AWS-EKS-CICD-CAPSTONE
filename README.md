@@ -38,13 +38,13 @@ Every `git push` automatically:
 |---|---|
 | ![100%](screenshots/05_unit_test_coverage_100.png) | ![Views](screenshots/06_coverage_views_module.png) |
 
-| Full Coverage Report | CodeBuild Succeeded |
+| Full Coverage Report | Template Update Push |
 |---|---|
-| ![Full](screenshots/07_coverage_full_report.png) | ![Build](screenshots/09_codebuild_succeeded.png) |
+| ![Full](screenshots/07_coverage_full_report.png) | ![Push](screenshots/08_template_update_push.png) |
 
-| Pipeline — All Stages Green |
-|---|
-| ![Pipeline](screenshots/10_pipeline_all_stages_green.png) |
+| CodeBuild Succeeded | Pipeline — All Stages Green |
+|---|---|
+| ![Build](screenshots/09_codebuild_succeeded.png) | ![Pipeline](screenshots/10_pipeline_all_stages_green.png) |
 
 ### Troubleshooting & Rollbacks
 
@@ -52,13 +52,45 @@ Every `git push` automatically:
 |---|---|
 | ![Logs](screenshots/11_kubectl_pod_error_logs.png) | ![Fix](screenshots/12_region_fix_deployed.png) |
 
-| Application — Orange Background | Pipeline — Orange Build Succeeded |
+| Orange Template Update | Pipeline — Orange Build Succeeded |
 |---|---|
-| ![Orange](screenshots/13_app_orange_background.png) | ![Pipeline](screenshots/14_pipeline_orange_build_succeeded.png) |
+| ![Orange](screenshots/13_base_template_orange_update.png) | ![Pipeline](screenshots/14_pipeline_orange_build_succeeded.png) |
 
-| Application — Cadetblue Background | Rollback to Orange |
+| Application — Orange Background | Pipeline — Cadetblue Build Succeeded |
 |---|---|
-| ![Cadetblue](screenshots/15_app_cadetblue_background.png) | ![Rollback](screenshots/16_rollback_to_orange.png) |
+| ![Orange App](screenshots/15_app_orange_background.png) | ![Cadetblue Pipeline](screenshots/16_pipeline_cadetblue_build_succeeded.png) |
+
+| Application — Cadetblue Background | Rollout History |
+|---|---|
+| ![Cadetblue](screenshots/17_app_cadetblue_background.png) | ![History](screenshots/18_rollout_history.png) |
+
+| Rollback to Orange |
+|---|
+| ![Rollback](screenshots/19_rollback_to_orange.png) |
+
+### ALB Migration & EKS Cluster
+
+| EKS Cluster Verified | ALB Controller Installed |
+|---|---|
+| ![EKS](screenshots/20_eks_cluster_verified.png) | ![ALB](screenshots/21_alb_controller_installed.png) |
+
+| Helm Installed |
+|---|
+| ![Helm](screenshots/22_helm_installed.png) |
+
+### Deploy Pipeline — Automated EKS Deployment
+
+| Deploy Buildspec Configuration | Application Running via ALB |
+|---|---|
+| ![Buildspec](screenshots/deploy-pipeline/01-deploy-buildspec-configuration.png) | ![Running](screenshots/deploy-pipeline/02-application-running-verification.png) |
+
+| Pipeline — All 4 Stages Succeeded | UI Theme Update — Cadetblue |
+|---|---|
+| ![Pipeline](screenshots/deploy-pipeline/03-pipeline-all-stages-succeeded.png) | ![Theme](screenshots/deploy-pipeline/04-ui-theme-update-cadetblue.png) |
+
+| Cadetblue Deployed | Git Revert — Rollback to Original |
+|---|---|
+| ![Deployed](screenshots/deploy-pipeline/05-ui-cadetblue-deployed.png) | ![Revert](screenshots/deploy-pipeline/06-git-revert-rollback-to-original.png) |
 
 ---
 
@@ -66,16 +98,21 @@ Every `git push` automatically:
 
 ### Complete CI/CD Platform
 
-![Full Architecture](screenshots/architecture.png)
+![Full Architecture](screenshots/architecture/cicd-pipeline-eks-architecture.png)
 
-### Architecture Evolution
+The architecture illustrates the end-to-end CI/CD workflow:
 
-| Stage | Diagram | What Was Built |
-|-------|---------|----------------|
-| Stage 1: Dev Environment | ![](screenshots/stage1_architecture.png) | IDE + CodeCommit + local SQLite |
-| Stage 2: DynamoDB Added | ![](screenshots/stage2_architecture.png) | Announcements from DynamoDB |
-| Stage 3: CI Pipeline | ![](screenshots/stage3_architecture.png) | CodeBuild + ECR + automated tests |
-| Stage 4: Full Platform | ![](screenshots/stage4_architecture.png) | EKS + ALB + DeployPods automation |
+1. **Developer** pushes code changes from the AWS Code Editor IDE
+2. **AWS CodeCommit** hosts the private Git repository and triggers the pipeline on every push
+3. **AWS CodePipeline** orchestrates the full CI/CD workflow across four stages:
+   - **UnitTest** — CodeBuild runs Pylint (10/10) and coverage (100%) as a quality gate
+   - **BuildImage** — CodeBuild builds the Docker container and pushes to Amazon ECR with three version tags
+   - **DeployPods** — CodeBuild runs `kubectl apply` to deploy the application onto Amazon EKS
+4. **Amazon ECR** stores and manages the versioned Docker container images
+5. **Amazon EKS** runs the Kubernetes cluster with rolling deployments and ALB ingress
+6. **Application Frontend** is served through the AWS Application Load Balancer and connects to:
+   - **Amazon RDS (MySQL)** — appointment bookings, hairdressers, and services via IAM token auth + SSL/TLS
+   - **Amazon DynamoDB** — salon announcements with schema-free, instant updates
 
 ---
 
@@ -321,23 +358,18 @@ Salon staff can update announcements in DynamoDB without any code deployment or 
 
 ---
 
-## ✅ What Was Built
+## ✅ Key Accomplishments
 
-- Cloned the project, ran locally, understood the codebase in AWS Code Editor
-- Improved unit test coverage from **98% → 100% across 161 statements**, Pylint 10/10
-- Built the hairdresser selection feature — UI template + Django backend
-- Integrated **Amazon DynamoDB** for salon announcements with full mock unit tests
-- Configured **AWS CodeBuild** to automate Pylint and coverage on every commit
-- Created **AWS CodePipeline** — Source → UnitTest stage triggering on every push
-- Migrated from SQLite to **Amazon RDS MySQL** with IAM authentication and SSL/TLS
-- Containerized the application with **Docker**, tested against live RDS
-- Pushed container image to **Amazon ECR** with 3 versioned tags
-- Deployed the application to **Amazon EKS** cluster using Kubernetes manifests
-- Diagnosed a broken pod deployment by reading **kubectl logs** — fixed region misconfiguration
-- Performed **Kubernetes rollbacks** using `kubectl rollout undo` across revision history
-- Replaced Classic Load Balancer with **Application Load Balancer** using Helm
-- Added **DeployPods CodeBuild stage** — completing the full automated CI/CD pipeline
-- Demonstrated **git revert rollback** — pipeline auto-redeployed the previous version
+- Achieved **100% test coverage** across 161 statements with **Pylint 10/10** — enforced as automated pipeline gates
+- Designed and implemented a **4-stage CI/CD pipeline** (Source → UnitTest → BuildImage → DeployPods) with zero manual intervention
+- Integrated **Amazon DynamoDB** for real-time salon announcements with fully mocked unit tests
+- Migrated the database layer from SQLite to **Amazon RDS MySQL** with IAM token authentication and SSL/TLS encryption
+- Containerized the full application with **Docker** and implemented a **multi-tag versioning strategy** (latest, staging, commit SHA) on Amazon ECR
+- Deployed and managed the application on **Amazon EKS** with Kubernetes rolling deployments and health-checked ALB ingress
+- Diagnosed and resolved a production pod failure by analyzing **kubectl logs** — identified region misconfiguration and redeployed within minutes
+- Implemented **dual rollback capability** — both `kubectl rollout undo` for instant Kubernetes rollback and `git revert` for full pipeline-driven redeployment
+- Migrated from Classic Load Balancer to **Application Load Balancer** using Helm and the AWS Load Balancer Controller
+- Automated the complete deployment lifecycle — every `git push` triggers quality gates, container builds, and Kubernetes deployment
 
 ---
 
@@ -372,4 +404,6 @@ This project demonstrates how a traditional web application can be transformed i
 
 ---
 
-*AWS Cloud Institute Capstone — Full cloud-native development and deployment lifecycle on AWS.*
+*Full cloud-native development and deployment lifecycle on AWS.*
+
+📄 [Business Case](BUSINESS_CASE.md) · 📘 [Technical Runbook](TECHNICAL_RUNBOOK.md)

@@ -26,7 +26,23 @@
 | 15 | `15_app_cadetblue_background.png` | Browser: application with cadetblue background color |
 | 16 | `16_rollback_to_orange.png` | Terminal: `kubectl rollout undo` + browser showing orange restored |
 
-### How to Take Screenshots
+## Screenshots — EKS Deploy Pipeline & Rollback (Phase 6)
 
-**Browser:** Press `Ctrl+Shift+S` (or use Snipping Tool / Screenshot tool)
-**Save each file** with the exact filename listed above into this `screenshots/` folder.
+Located in `screenshots/deploy-pipeline/`:
+
+| # | Filename | What It Shows |
+|---|----------|---------------|
+| 01 | `01-deploy-buildspec-configuration.png` | CodeBuild DeployPods project buildspec configuration |
+| 02 | `02-application-running-verification.png` | Application running via ALB after EKS deployment |
+| 03 | `03-pipeline-all-stages-succeeded.png` | Full CI/CD pipeline — all 4 stages succeeded |
+| 04 | `04-ui-theme-update-cadetblue.png` | UI theme update to cadetblue triggered via pipeline |
+| 05 | `05-ui-cadetblue-deployed.png` | Application displaying cadetblue background |
+| 06 | `06-git-revert-rollback-to-original.png` | Git revert rollback — original theme restored |
+
+## Architecture Diagram
+
+Located in `screenshots/architecture/`:
+
+| Filename | What It Shows |
+|----------|---------------|
+| `cicd-pipeline-eks-architecture.png` | End-to-end CI/CD pipeline and EKS infrastructure architecture |

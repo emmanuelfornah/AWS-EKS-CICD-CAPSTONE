@@ -17,7 +17,7 @@ spec:
       serviceAccountName: appointments-sa
       containers:
       - name: webserver
-        image: <AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/containers-image-repository:background-color-updated-to-cadetblue
+        image: <AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/containers-image-repository:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8088

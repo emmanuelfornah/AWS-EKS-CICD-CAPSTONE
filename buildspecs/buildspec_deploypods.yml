@@ -1,0 +1,17 @@
+version: 0.2
+
+phases:
+
+  pre_build:
+    commands:
+      - aws eks update-kubeconfig --name eks-cluster
+
+  build:
+    commands:
+      - kubectl delete -f manifests/appointments-deployment.yml --ignore-not-found
+      - kubectl apply -f manifests/.
+      - sleep 30
+
+  post_build:
+    commands:
+      - aws elbv2 describe-load-balancers --query 'LoadBalancers[*].[DNSName]' --output text
