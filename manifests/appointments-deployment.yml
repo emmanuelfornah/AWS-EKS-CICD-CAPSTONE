@@ -17,13 +17,13 @@ spec:
       serviceAccountName: appointments-sa
       containers:
       - name: webserver
-        image: <AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/containers-image-repository:latest
+        image: <AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/containers-image-repository:background-color-updated-to-orange
         imagePullPolicy: Always
         ports:
         - containerPort: 8088
         env:
         - name: AWS_DEFAULT_REGION
-          value: "<AWS_REGION>"
+          value: "<AWS_REGION>"  # Fixed: was set to 'wrongregion' causing STS endpoint failure
         - name: DATABASE_HOST
           value: "<RDS_ENDPOINT>"
         - name: DATABASE_USER
