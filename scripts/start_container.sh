@@ -30,6 +30,19 @@ aws ecr get-login-password --region "$AWS_REGION" \
   | docker login --username AWS --password-stdin "$REGISTRY"
 docker pull "$IMAGE"
 
+# Nothing else in this deploy flow ever runs migrations - found via a
+# real deployment failing with "Table ... doesn't exist" on a freshly
+# created RDS instance. manage.py migrate is idempotent (no-op if
+# already applied), so running it on every deploy is safe, not just a
+# first-time bootstrap step.
+docker run --rm \
+  -e AWS_DEFAULT_REGION="$AWS_REGION" \
+  -e DATABASE_HOST="$DATABASE_HOST" \
+  -e DATABASE_USER="$DATABASE_USER" \
+  -e DATABASE_DB_NAME="$DATABASE_DB_NAME" \
+  -e DJANGO_SECRET_KEY="$DJANGO_SECRET_KEY" \
+  "$IMAGE" manage.py migrate --noinput
+
 docker run -d --name appointments-app \
   --restart unless-stopped \
   -p "${APP_PORT}:${APP_PORT}" \

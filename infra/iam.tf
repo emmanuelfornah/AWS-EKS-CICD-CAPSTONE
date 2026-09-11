@@ -71,6 +71,7 @@ resource "aws_iam_role_policy" "app_dynamodb" {
       Action = [
         "dynamodb:GetItem",
         "dynamodb:Query",
+        "dynamodb:Scan", # appointments/views.py's index view scans the whole table
         "dynamodb:PutItem",
         "dynamodb:UpdateItem",
       ]
