@@ -47,8 +47,15 @@ variable "db_name" {
 }
 
 variable "db_username" {
-  type    = string
-  default = "appointments_web"
+  description = "RDS master/admin account — password-based (RDS-managed secret), for administration only. The app never connects as this user. (Left as the original variable/value to avoid forcing RDS replacement — username is immutable on aws_db_instance once created.)"
+  type        = string
+  default     = "appointments_web"
+}
+
+variable "app_db_username" {
+  description = "Dedicated IAM-auth-only MySQL user the app actually connects as. Deliberately distinct from db_username: found on a real deployment that pointing the app at the master account meant its IAM token was presented to a user never configured for IAM auth — access denied, not because the user was missing."
+  type        = string
+  default     = "appointments_app"
 }
 
 variable "db_instance_class" {

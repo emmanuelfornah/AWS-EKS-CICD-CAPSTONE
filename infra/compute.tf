@@ -52,7 +52,7 @@ resource "aws_launch_template" "app" {
     log_group         = aws_cloudwatch_log_group.app.name
     secret_arn        = aws_secretsmanager_secret.app_config.arn
     database_host     = aws_db_instance.main.address
-    db_username       = var.db_username
+    db_username       = var.app_db_username
     db_name           = var.db_name
     app_port          = var.app_port
     health_check_path = var.health_check_path

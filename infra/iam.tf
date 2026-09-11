@@ -53,6 +53,7 @@ resource "aws_iam_role_policy" "app_ecr_pull" {
           "ecr:BatchGetImage",
           "ecr:GetDownloadUrlForLayer",
           "ecr:BatchCheckLayerAvailability",
+          "ecr:DescribeImages", # scripts/bootstrap_rds_user.sh.tpl looks up the latest pushed tag
         ]
         Resource = aws_ecr_repository.app.arn
       },
@@ -86,7 +87,7 @@ resource "aws_iam_role_policy" "app_rds_iam_auth" {
     Statement = [{
       Effect   = "Allow"
       Action   = "rds-db:connect"
-      Resource = "arn:aws:rds-db:${var.aws_region}:${data.aws_caller_identity.current.account_id}:dbuser:${aws_db_instance.main.resource_id}/${var.db_username}"
+      Resource = "arn:aws:rds-db:${var.aws_region}:${data.aws_caller_identity.current.account_id}:dbuser:${aws_db_instance.main.resource_id}/${var.app_db_username}"
     }]
   })
 }
@@ -97,9 +98,19 @@ resource "aws_iam_role_policy" "app_secrets" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect   = "Allow"
-      Action   = "secretsmanager:GetSecretValue"
-      Resource = aws_secretsmanager_secret.app_config.arn
+      Effect = "Allow"
+      Action = "secretsmanager:GetSecretValue"
+      Resource = [
+        aws_secretsmanager_secret.app_config.arn,
+        # RDS-managed master secret — only needed by
+        # scripts/bootstrap_rds_iam_user.py (run once via SSM to create
+        # the appointments_web IAM-auth MySQL user, null_resource in
+        # rds.tf). Widens the app's normal runtime role to also
+        # read the master credential permanently, which isn't ideal
+        # least-privilege — accepted as a documented tradeoff rather
+        # than a two-phase apply for a one-time bootstrap step.
+        aws_db_instance.main.master_user_secret[0].secret_arn,
+      ]
     }]
   })
 }
