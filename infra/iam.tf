@@ -110,8 +110,11 @@ resource "aws_iam_role_policy" "app_cloudwatch_logs" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect   = "Allow"
-      Action   = ["logs:CreateLogStream", "logs:PutLogEvents", "logs:CreateLogGroup"]
+      Effect = "Allow"
+      # No logs:CreateLogGroup — compute.tf already creates this log group,
+      # and start_container.sh runs the awslogs driver with
+      # awslogs-create-group=false, so the instance never needs to create one.
+      Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
       Resource = "${aws_cloudwatch_log_group.app.arn}:*"
     }]
   })
