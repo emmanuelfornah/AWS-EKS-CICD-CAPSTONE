@@ -138,3 +138,59 @@ resource "aws_iam_role_policy_attachment" "codedeploy_service" {
   role       = aws_iam_role.codedeploy.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
 }
+
+# AWSCodeDeployRole deliberately excludes iam:PassRole and ec2:RunInstances.
+# COPY_AUTO_SCALING_GROUP blue/green needs both: CodeDeploy calls RunInstances
+# directly (confirmed via CloudTrail, not just guessed) to populate the
+# replacement ASG, and since the launch template carries an IAM instance
+# profile, it also needs to pass that role along. The managed policy's own
+# generic "no permission for AmazonAutoScaling operations" error was
+# misleading — CloudTrail showed the actual denial was ec2:RunInstances,
+# not an AutoScaling API at all.
+resource "aws_iam_role_policy" "codedeploy_pass_role" {
+  name = "pass-app-instance-role-scoped"
+  role = aws_iam_role.codedeploy.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "iam:PassRole"
+      Resource = aws_iam_role.app_instance.arn
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "codedeploy_run_instances" {
+  name = "run-instances-scoped"
+  role = aws_iam_role.codedeploy.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = "ec2:RunInstances"
+        Resource = [
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*",
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:volume/*",
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:network-interface/*",
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:security-group/*",
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:subnet/*",
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:launch-template/*",
+          "arn:aws:ec2:${var.aws_region}::image/*", # AMI — no account ID, may be Amazon-owned
+        ]
+      },
+      {
+        # RunInstances via ASG also tags the new instance (Name=appointments-app,
+        # CodeDeployProvisioningDeploymentId=...) — caught via CloudTrail after
+        # RunInstances itself started succeeding.
+        Effect = "Allow"
+        Action = "ec2:CreateTags"
+        Resource = [
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*",
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:volume/*",
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:network-interface/*",
+        ]
+      },
+    ]
+  })
+}

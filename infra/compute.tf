@@ -21,8 +21,14 @@ resource "aws_launch_template" "app" {
   }
 
   metadata_options {
-    http_tokens                 = "required" # IMDSv2 only — closes the SSRF-to-credential-theft path IMDSv1 allows
-    http_put_response_hop_limit = 1
+    http_tokens = "required" # IMDSv2 only — closes the SSRF-to-credential-theft path IMDSv1 allows
+    # 2, not 1: the app runs inside a Docker container, and a request
+    # from inside it to IMDS crosses one extra network hop (the
+    # container's bridge interface) beyond the host itself. hop_limit=1
+    # silently blocked that, surfacing as "Unable to locate credentials"
+    # from boto3 inside the container (django_iam_dbauth generating the
+    # RDS auth token) — found via a real deployment, not anticipated.
+    http_put_response_hop_limit = 2
   }
 
   block_device_mappings {
