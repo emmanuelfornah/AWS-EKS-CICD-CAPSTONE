@@ -57,6 +57,13 @@ resource "aws_lb_listener" "https" {
     type             = "forward"
     target_group_arn = aws_lb_target_group.blue.arn # CodeDeploy flips this during blue/green deploys
   }
+
+  # Without this, `terraform apply` after a deploy would see the listener
+  # pointed at green (CodeDeploy's live change, made outside Terraform)
+  # and "fix" it back to blue — reverting a successful cutover.
+  lifecycle {
+    ignore_changes = [default_action]
+  }
 }
 
 resource "aws_lb_listener" "http_redirect" {
