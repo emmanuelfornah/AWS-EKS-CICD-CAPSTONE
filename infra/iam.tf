@@ -53,6 +53,7 @@ resource "aws_iam_role_policy" "app_ecr_pull" {
           "ecr:BatchGetImage",
           "ecr:GetDownloadUrlForLayer",
           "ecr:BatchCheckLayerAvailability",
+          "ecr:DescribeImages", # scripts/bootstrap_rds_user.sh.tpl looks up the latest pushed tag
         ]
         Resource = aws_ecr_repository.app.arn
       },
@@ -86,7 +87,7 @@ resource "aws_iam_role_policy" "app_rds_iam_auth" {
     Statement = [{
       Effect   = "Allow"
       Action   = "rds-db:connect"
-      Resource = "arn:aws:rds-db:${var.aws_region}:${data.aws_caller_identity.current.account_id}:dbuser:${aws_db_instance.main.resource_id}/${var.db_username}"
+      Resource = "arn:aws:rds-db:${var.aws_region}:${data.aws_caller_identity.current.account_id}:dbuser:${aws_db_instance.main.resource_id}/${var.app_db_username}"
     }]
   })
 }
@@ -97,9 +98,19 @@ resource "aws_iam_role_policy" "app_secrets" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect   = "Allow"
-      Action   = "secretsmanager:GetSecretValue"
-      Resource = aws_secretsmanager_secret.app_config.arn
+      Effect = "Allow"
+      Action = "secretsmanager:GetSecretValue"
+      Resource = [
+        aws_secretsmanager_secret.app_config.arn,
+        # RDS-managed master secret — only needed by
+        # scripts/bootstrap_rds_iam_user.py (run once via SSM to create
+        # the appointments_web IAM-auth MySQL user, null_resource in
+        # rds.tf). Widens the app's normal runtime role to also
+        # read the master credential permanently, which isn't ideal
+        # least-privilege — accepted as a documented tradeoff rather
+        # than a two-phase apply for a one-time bootstrap step.
+        aws_db_instance.main.master_user_secret[0].secret_arn,
+      ]
     }]
   })
 }
@@ -137,4 +148,60 @@ resource "aws_iam_role" "codedeploy" {
 resource "aws_iam_role_policy_attachment" "codedeploy_service" {
   role       = aws_iam_role.codedeploy.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole"
+}
+
+# AWSCodeDeployRole deliberately excludes iam:PassRole and ec2:RunInstances.
+# COPY_AUTO_SCALING_GROUP blue/green needs both: CodeDeploy calls RunInstances
+# directly (confirmed via CloudTrail, not just guessed) to populate the
+# replacement ASG, and since the launch template carries an IAM instance
+# profile, it also needs to pass that role along. The managed policy's own
+# generic "no permission for AmazonAutoScaling operations" error was
+# misleading — CloudTrail showed the actual denial was ec2:RunInstances,
+# not an AutoScaling API at all.
+resource "aws_iam_role_policy" "codedeploy_pass_role" {
+  name = "pass-app-instance-role-scoped"
+  role = aws_iam_role.codedeploy.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "iam:PassRole"
+      Resource = aws_iam_role.app_instance.arn
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "codedeploy_run_instances" {
+  name = "run-instances-scoped"
+  role = aws_iam_role.codedeploy.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = "ec2:RunInstances"
+        Resource = [
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*",
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:volume/*",
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:network-interface/*",
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:security-group/*",
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:subnet/*",
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:launch-template/*",
+          "arn:aws:ec2:${var.aws_region}::image/*", # AMI — no account ID, may be Amazon-owned
+        ]
+      },
+      {
+        # RunInstances via ASG also tags the new instance (Name=appointments-app,
+        # CodeDeployProvisioningDeploymentId=...) — caught via CloudTrail after
+        # RunInstances itself started succeeding.
+        Effect = "Allow"
+        Action = "ec2:CreateTags"
+        Resource = [
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:instance/*",
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:volume/*",
+          "arn:aws:ec2:${var.aws_region}:${data.aws_caller_identity.current.account_id}:network-interface/*",
+        ]
+      },
+    ]
+  })
 }

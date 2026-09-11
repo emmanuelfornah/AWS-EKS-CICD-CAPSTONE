@@ -44,3 +44,38 @@ resource "aws_db_instance" "main" {
 
   enabled_cloudwatch_logs_exports = ["error", "general", "slowquery"]
 }
+
+# iam_database_authentication_enabled above only turns the *feature* on —
+# it doesn't create or configure any MySQL user to use it. This runs once
+# (idempotent) via SSM against a running app instance to create
+# app_db_username as a dedicated IAM-auth-only user, separate from the
+# password-based master account. Found via a real deployment failure
+# ("Access denied ... using password: YES") that skipping this step
+# silently succeeds at the Terraform/AWS level while breaking the app.
+resource "null_resource" "bootstrap_rds_iam_user" {
+  triggers = {
+    db_instance_id = aws_db_instance.main.id
+    script_hash    = filemd5("${path.module}/../scripts/bootstrap_rds_iam_user.py")
+  }
+
+  depends_on = [
+    aws_db_instance.main,
+    aws_autoscaling_group.app,
+    aws_iam_role_policy.app_secrets,
+  ]
+
+  provisioner "local-exec" {
+    interpreter = ["bash", "-c"]
+    command = templatefile("${path.module}/templates/bootstrap_rds_user.sh.tpl", {
+      script_path       = "${path.module}/../scripts/bootstrap_rds_iam_user.py"
+      aws_region        = var.aws_region
+      aws_profile       = "capstone"
+      master_secret_arn = aws_db_instance.main.master_user_secret[0].secret_arn
+      db_host           = aws_db_instance.main.address
+      db_name           = var.db_name
+      app_db_user       = var.app_db_username
+      ecr_registry      = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
+      ecr_repo_name     = aws_ecr_repository.app.name
+    })
+  }
+}

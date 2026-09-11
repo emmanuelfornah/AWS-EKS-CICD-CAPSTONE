@@ -137,6 +137,15 @@ if (
     DATABASES = {
         "default": {
             "HOST": os.environ["DATABASE_HOST"],
+            # django_iam_dbauth's get_aws_connection_params() reads
+            # params.get("port", 5432) when generating the IAM auth
+            # token — that default is Postgres's port, not MySQL's, and
+            # an unset PORT here means the signed token is for the
+            # wrong port entirely, which RDS correctly rejects as an
+            # authentication failure (not an obviously port-related
+            # error). Found via a real deployment, not documented
+            # anywhere obvious in the library itself.
+            "PORT": "3306",
             "USER": os.environ["DATABASE_USER"],
             "NAME": os.environ["DATABASE_DB_NAME"],
             "ENGINE": "django_iam_dbauth.aws.mysql",
