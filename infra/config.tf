@@ -27,6 +27,15 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "config" {
   }
 }
 
+# Compliance history shouldn't be silently overwritable/deletable —
+# versioning keeps prior Config snapshots recoverable.
+resource "aws_s3_bucket_versioning" "config" {
+  bucket = aws_s3_bucket.config.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 resource "aws_s3_bucket_policy" "config" {
   bucket = aws_s3_bucket.config.id
   policy = jsonencode({
