@@ -88,6 +88,20 @@ resource "aws_iam_role_policy" "codebuild_unittest" {
         Action   = ["s3:GetObject", "s3:PutObject"]
         Resource = "${aws_s3_bucket.pipeline_artifacts.arn}/*"
       },
+      {
+        # buildspec_unittest.yml's `reports:` block (UnitTests, NewCoverage)
+        # needs CodeBuild to create/write its own report groups — missed
+        # this on the first pass, only surfaced on a real pipeline run.
+        Effect = "Allow"
+        Action = [
+          "codebuild:CreateReportGroup",
+          "codebuild:CreateReport",
+          "codebuild:UpdateReport",
+          "codebuild:BatchPutTestCases",
+          "codebuild:BatchPutCodeCoverages",
+        ]
+        Resource = "arn:aws:codebuild:${var.aws_region}:${data.aws_caller_identity.current.account_id}:report-group/${aws_codebuild_project.unittest.name}-*"
+      },
     ]
   })
 }
@@ -269,12 +283,33 @@ resource "aws_iam_role_policy" "codepipeline" {
 # --- Pipeline ---
 
 resource "aws_codepipeline" "app" {
-  name     = "appointments-pipeline"
-  role_arn = aws_iam_role.codepipeline.arn
+  name          = "appointments-pipeline"
+  role_arn      = aws_iam_role.codepipeline.arn
+  pipeline_type = "V2" # required for the trigger/file_paths filter below
 
   artifact_store {
     type     = "S3"
     location = aws_s3_bucket.pipeline_artifacts.bucket
+  }
+
+  # Without this, any push to main re-triggers a full app
+  # rebuild+redeploy even for infra-only changes (Terraform never
+  # touches the running app) - confirmed happening for real: a pure
+  # infra/ commit triggered a full deploy that briefly doubled the
+  # running instance count during the overlap.
+  trigger {
+    provider_type = "CodeStarSourceConnection"
+    git_configuration {
+      source_action_name = "Source"
+      push {
+        branches {
+          includes = [var.github_branch]
+        }
+        file_paths {
+          excludes = ["infra/**"]
+        }
+      }
+    }
   }
 
   stage {
