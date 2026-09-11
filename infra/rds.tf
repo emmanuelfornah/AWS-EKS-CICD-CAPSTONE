@@ -16,10 +16,12 @@ resource "aws_db_subnet_group" "main" {
 }
 
 resource "aws_db_instance" "main" {
-  identifier     = "scheduler-db" # matches the name already in use
-  engine         = "mysql"
-  engine_version = "8.0"
-  instance_class = var.db_instance_class
+  identifier        = "scheduler-db" # matches the name already in use
+  engine            = "mysql"
+  engine_version    = "8.0"
+  instance_class    = var.db_instance_class
+  allocated_storage = 20 # GB — RDS free-tier ceiling, plenty at this app's scale
+  storage_type      = "gp3"
 
   db_name                     = var.db_name
   username                    = var.db_username
