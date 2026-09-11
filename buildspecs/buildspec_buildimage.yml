@@ -8,19 +8,31 @@ phases:
       - echo $AWS_REGION
       - echo Logging in to Amazon ECR...
       - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
-    
+
   build:
     commands:
       - echo Build started on `date`
       - echo Building the Docker image...
       - docker build -t appointments-app-container .
-      - docker tag appointments-app-container:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository:latest
-      - docker tag appointments-app-container:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository:staging-test-image
+      # ECR repo is IMMUTABLE (infra/ecr.tf) — a reusable "latest" tag
+      # can't be re-pushed on a second build, so the commit-SHA tag is
+      # the only one used. It's also the one thing that unambiguously
+      # identifies which image a given deployment is running.
       - docker tag appointments-app-container:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository:${CODEBUILD_RESOLVED_SOURCE_VERSION}
-      - docker tag appointments-app-container:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository:background-color-updated-to-cadetblue
       - echo Build completed on `date`
-    
+
   post_build:
     commands:
       - echo Pushing the Docker image to Amazon ECR...
-      - docker push --all-tags $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository:${CODEBUILD_RESOLVED_SOURCE_VERSION}
+      # The Deploy stage's CodeDeploy action gets this artifact, not a
+      # CodeBuild environment variable — appspec.yml's ApplicationStart
+      # hook (scripts/start_container.sh) reads this file to know which
+      # tag to `docker pull`.
+      - echo -n "${CODEBUILD_RESOLVED_SOURCE_VERSION}" > image_tag.txt
+
+artifacts:
+  files:
+    - appspec.yml
+    - image_tag.txt
+    - scripts/**/*
