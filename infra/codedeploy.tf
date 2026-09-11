@@ -38,17 +38,18 @@ resource "aws_codedeploy_deployment_group" "app" {
     }
   }
 
+  # ASG-based blue/green (autoscaling_groups above) needs a single
+  # target_group_info, not target_group_pair_info — the AWS API rejects
+  # that combination (target_group_pair_info's two-target-group
+  # traffic-shift model is for deployments without an ASG, e.g.
+  # ECS/Lambda or tag-based EC2). In this model the listener never
+  # changes which target group it forwards to; CodeDeploy provisions a
+  # temporary replacement ASG per deployment and registers its
+  # instances to this same target group, then terminates the old ASG's
+  # instances after the bake window.
   load_balancer_info {
-    target_group_pair_info {
-      prod_traffic_route {
-        listener_arns = [aws_lb_listener.https.arn]
-      }
-      target_group {
-        name = aws_lb_target_group.blue.name
-      }
-      target_group {
-        name = aws_lb_target_group.green.name
-      }
+    target_group_info {
+      name = aws_lb_target_group.app.name
     }
   }
 }
@@ -63,8 +64,8 @@ resource "aws_cloudwatch_metric_alarm" "unhealthy_hosts" {
   statistic           = "Average"
   threshold           = 0
   dimensions = {
-    TargetGroup  = aws_lb_target_group.blue.arn_suffix
+    TargetGroup  = aws_lb_target_group.app.arn_suffix
     LoadBalancer = aws_lb.main.arn_suffix
   }
-  alarm_description = "Trips a CodeDeploy rollback if the blue target group has any unhealthy host during a deploy"
+  alarm_description = "Trips a CodeDeploy rollback if the target group has any unhealthy host during a deploy"
 }

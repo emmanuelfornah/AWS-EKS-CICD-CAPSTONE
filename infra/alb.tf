@@ -1,6 +1,8 @@
-# HTTPS-only at the edge; HTTP exists only to redirect. Two target
-# groups (blue/green) so CodeDeploy can cut traffic over without
-# touching this file on every deploy.
+# HTTPS-only at the edge; HTTP exists only to redirect. One target
+# group — CodeDeploy's ASG-based blue/green (codedeploy.tf) provisions
+# a temporary replacement ASG per deployment and registers it to this
+# same target group; the listener's forwarding target never changes,
+# so there's no "blue/green pair of target groups" to manage here.
 
 resource "aws_lb" "main" {
   name               = "appointments-alb"
@@ -12,25 +14,8 @@ resource "aws_lb" "main" {
   drop_invalid_header_fields = true
 }
 
-resource "aws_lb_target_group" "blue" {
-  name        = "appointments-tg-blue"
-  port        = var.app_port
-  protocol    = "HTTP"
-  vpc_id      = aws_vpc.main.id
-  target_type = "instance"
-
-  health_check {
-    path                = var.health_check_path
-    healthy_threshold   = 2
-    unhealthy_threshold = 3
-    interval            = 15
-    timeout             = 5
-    matcher             = "200"
-  }
-}
-
-resource "aws_lb_target_group" "green" {
-  name        = "appointments-tg-green"
+resource "aws_lb_target_group" "app" {
+  name        = "appointments-tg"
   port        = var.app_port
   protocol    = "HTTP"
   vpc_id      = aws_vpc.main.id
@@ -55,14 +40,7 @@ resource "aws_lb_listener" "https" {
 
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.blue.arn # CodeDeploy flips this during blue/green deploys
-  }
-
-  # Without this, `terraform apply` after a deploy would see the listener
-  # pointed at green (CodeDeploy's live change, made outside Terraform)
-  # and "fix" it back to blue — reverting a successful cutover.
-  lifecycle {
-    ignore_changes = [default_action]
+    target_group_arn = aws_lb_target_group.app.arn
   }
 }
 

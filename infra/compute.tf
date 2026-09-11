@@ -42,9 +42,9 @@ resource "aws_launch_template" "app" {
   }
 
   user_data = base64encode(templatefile("${path.module}/templates/user-data.sh.tpl", {
-    aws_region    = var.aws_region
-    log_group     = aws_cloudwatch_log_group.app.name
-    secret_arn    = aws_secretsmanager_secret.app_config.arn
+    aws_region        = var.aws_region
+    log_group         = aws_cloudwatch_log_group.app.name
+    secret_arn        = aws_secretsmanager_secret.app_config.arn
     database_host     = aws_db_instance.main.address
     db_username       = var.db_username
     db_name           = var.db_name
@@ -75,7 +75,7 @@ resource "aws_autoscaling_group" "app" {
     version = "$Latest"
   }
 
-  target_group_arns = [aws_lb_target_group.blue.arn] # CodeDeploy manages this during blue/green cutovers
+  target_group_arns = [aws_lb_target_group.app.arn] # CodeDeploy manages ASG membership here during blue/green deploys
 
   instance_refresh {
     strategy = "Rolling"

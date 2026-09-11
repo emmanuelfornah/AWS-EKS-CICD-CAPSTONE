@@ -15,11 +15,11 @@ terraform {
   # Remote state, not local — this stack holds RDS/ASG/IAM resources
   # that must never be re-created from an empty local state file.
   backend "s3" {
-    bucket         = "REPLACE-WITH-tfstate-bucket"
+    bucket         = "aws-eks-cicd-capstone-tfstate-460223322833"
     key            = "aws-eks-cicd-capstone/primary/terraform.tfstate"
-    region         = "us-east-1"
+    region         = "us-east-2"
     encrypt        = true
-    dynamodb_table = "REPLACE-WITH-tf-lock-table"
+    dynamodb_table = "aws-eks-cicd-capstone-tflock"
   }
 }
 
