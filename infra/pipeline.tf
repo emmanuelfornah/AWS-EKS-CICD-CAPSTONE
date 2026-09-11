@@ -180,9 +180,15 @@ resource "aws_codebuild_project" "buildimage" {
   }
 
   environment {
-    compute_type    = "BUILD_GENERAL1_SMALL"
-    image           = "aws/codebuild/standard:7.0"
-    type            = "LINUX_CONTAINER"
+    compute_type = "BUILD_GENERAL1_SMALL"
+    # ARM_CONTAINER, not LINUX_CONTAINER: the ASG launches Graviton
+    # (t4g) instances (compute.tf), so the image built here has to be
+    # arm64 too. A LINUX_CONTAINER (x86_64) build would produce an
+    # amd64 image that fails to start on the instances with "exec
+    # format error" — building natively on ARM avoids needing
+    # buildx/QEMU cross-compilation entirely.
+    image           = "aws/codebuild/amazonlinux2-aarch64-standard:3.0"
+    type            = "ARM_CONTAINER"
     privileged_mode = true # required: this stage runs `docker build`
   }
 
