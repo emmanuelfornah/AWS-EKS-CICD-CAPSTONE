@@ -64,35 +64,24 @@ resource "aws_launch_template" "app" {
   }
 }
 
-resource "aws_autoscaling_group" "app" {
-  name                = "appointments-asg"
-  min_size            = var.asg_min_size
-  max_size            = var.asg_max_size
-  desired_capacity    = var.asg_min_size
-  vpc_zone_identifier = aws_subnet.private_app[*].id
-
-  # Spread across AZs, not just across subnets within one -- this is
-  # what actually gives HA against an AZ outage.
-  health_check_type         = "ELB"
-  health_check_grace_period = 120
-
-  launch_template {
-    id      = aws_launch_template.app.id
-    version = "$Latest"
-  }
-
-  target_group_arns = [aws_lb_target_group.app.arn] # CodeDeploy manages ASG membership here during blue/green deploys
-
-  instance_refresh {
-    strategy = "Rolling"
-    preferences {
-      min_healthy_percentage = 100
-    }
-  }
-
-  tag {
-    key                 = "Name"
-    value               = "appointments-app"
-    propagate_at_launch = true
-  }
-}
+# No aws_autoscaling_group resource here on purpose. There was one —
+# "appointments-asg" — but CodeDeploy's ASG-copy blue/green (COPY_AUTO_
+# SCALING_GROUP, codedeploy.tf) doesn't scale it, it *replaces* it: on
+# the first successful deployment CodeDeploy created a new ASG
+# (CodeDeploy_appointments-blue-green_<deployment-id>) using this launch
+# template, cut traffic over, and deleted the original outright — not
+# scaled to 0, gone. Every future deployment repeats this with a new
+# ASG each time. Terraform owning a static "appointments-asg" resource
+# after that first deploy meant every unrelated `apply` (e.g. adding
+# dns.tf's Route 53 record) would try to recreate it — a duplicate,
+# unused, real-cost ASG sitting next to the one CodeDeploy actually
+# manages. Removed from state (`terraform state rm`) rather than fought
+# with `ignore_changes`, since Terraform can't ignore a resource being
+# gone entirely, only attribute-level drift on one that still exists.
+# CodeDeploy fully owns the live compute going forward; Terraform still
+# owns the launch template CodeDeploy copies from, and everything else
+# in this stack (VPC, ALB, RDS, IAM, ECR, the pipeline itself).
+#
+# Consequence: `terraform destroy` no longer tears down the live ASG.
+# Manually delete the current CodeDeploy_appointments-blue-green_*
+# ASG (force-delete, terminates its instances) before destroying.

@@ -8,11 +8,21 @@ resource "aws_codedeploy_deployment_group" "app" {
   deployment_group_name = "appointments-blue-green"
   service_role_arn      = aws_iam_role.codedeploy.arn
 
-  autoscaling_groups = [aws_autoscaling_group.app.name]
+  # "appointments-asg" is no longer a Terraform resource (see the long
+  # comment in compute.tf) — this string is only the one-time seed name
+  # CodeDeploy's first-ever deployment used as its copy template. Every
+  # deployment since has rebound this to a different, CodeDeploy-created
+  # ASG name; ignore_changes below is what stops Terraform from fighting
+  # that on every future apply.
+  autoscaling_groups = ["appointments-asg"]
 
   deployment_style {
     deployment_type   = "BLUE_GREEN"
     deployment_option = "WITH_TRAFFIC_CONTROL"
+  }
+
+  lifecycle {
+    ignore_changes = [autoscaling_groups]
   }
 
   # Auto-rollback on a failed deployment or a triggered CloudWatch
@@ -35,6 +45,15 @@ resource "aws_codedeploy_deployment_group" "app" {
     terminate_blue_instances_on_deployment_success {
       action                           = "TERMINATE"
       termination_wait_time_in_minutes = 30 # bake window — instant rollback is just not-yet-terminated blue
+    }
+    # Missing this defaulted to DISCOVER_EXISTING (look for an
+    # already-running, separately-tagged "green" fleet) instead of
+    # COPY_AUTO_SCALING_GROUP (provision a replacement copy of
+    # autoscaling_groups above) — the only real option when the green
+    # fleet is meant to be that copy, not a fleet that already exists.
+    # Caught via a real deployment failing with NO_INSTANCES.
+    green_fleet_provisioning_option {
+      action = "COPY_AUTO_SCALING_GROUP"
     }
   }
 

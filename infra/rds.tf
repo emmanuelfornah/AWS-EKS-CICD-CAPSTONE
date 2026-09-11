@@ -60,7 +60,6 @@ resource "null_resource" "bootstrap_rds_iam_user" {
 
   depends_on = [
     aws_db_instance.main,
-    aws_autoscaling_group.app,
     aws_iam_role_policy.app_secrets,
   ]
 

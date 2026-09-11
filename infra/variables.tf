@@ -4,6 +4,17 @@ variable "aws_region" {
   default     = "us-east-2"
 }
 
+variable "domain_name" {
+  description = "Subdomain the ALB is reachable at. The root domain (emmanuelfornah.com) and its Route 53 hosted zone are pre-existing — registered and managed outside this Terraform, referenced here via data source."
+  type        = string
+  default     = "appointments.emmanuelfornah.com"
+}
+
+variable "root_domain" {
+  type    = string
+  default = "emmanuelfornah.com"
+}
+
 variable "dr_region" {
   description = "Cross-region DR target (pilot light — see EC2_MIGRATION_PLAN.md v2b, not yet built as Terraform). us-west-2 deliberately, not us-east-1: it's on a different power grid and weather system than the Gulf Coast/central-US winter-storm risk (2021 Texas/ERCOT-style event) that's the actual disaster scenario here, not just 'AWS's other big region.'"
   type        = string
