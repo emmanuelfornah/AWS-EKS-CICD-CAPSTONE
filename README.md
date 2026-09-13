@@ -85,6 +85,28 @@ control-plane charge doesn't make sense to run continuously for a demo
 project) rather than left live — the same cost-discipline that later
 drove the migration decision below.
 
+| Pipeline — all 4 stages green | Rollout history → rollback executed |
+|---|---|
+| ![Pipeline green](screenshots/10_pipeline_all_stages_green.png) | ![Rollback](screenshots/19_rollback_to_orange.png) |
+
+| Pod crash — region misconfiguration | Fixed and redeployed |
+|---|---|
+| ![Pod error](screenshots/11_kubectl_pod_error_logs.png) | ![Fix deployed](screenshots/12_region_fix_deployed.png) |
+
+| 100% test coverage | EKS cluster verified |
+|---|---|
+| ![Coverage](screenshots/05_unit_test_coverage_100.png) | ![EKS verified](screenshots/20_eks_cluster_verified.png) |
+
+Full 30-image set (every CI/CD stage, both rollback methods, ALB
+migration): [`screenshots/`](screenshots/).
+
+> **Evidence gap, stated plainly:** the EC2/blue-green phase above is live
+> and verifiable by visiting the URL directly, but doesn't yet have its
+> own screenshot set the way the EKS phase does — that's a real gap, not
+> an oversight, and worth closing (a green pipeline run, the CodeDeploy
+> blue/green console view, the live app) before this README is considered
+> finished.
+
 ## Why the migration (EKS → EC2)
 
 - EKS's control plane is a fixed ~$0.10/hr (~$73/mo) charge regardless
