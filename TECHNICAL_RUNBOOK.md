@@ -9,46 +9,54 @@
 1. [Purpose](#purpose)
 2. [System Overview](#system-overview)
 3. [AWS Resources Reference](#aws-resources-reference)
-4. [Build Pipeline Configuration](#buildspec-files)
-5. [Kubernetes Deployment](#kubernetes-manifests-summary)
+4. [Build Pipeline Configuration](#build-pipeline-configuration)
+5. [Deployment Mechanics — CodeDeploy Blue/Green](#deployment-mechanics--codedeploy-bluegreen)
 6. [Day-to-Day Operations](#day-to-day-operations)
 7. [Incident Response](#incident-response-quick-start)
 8. [Rollback Procedures](#rollback-procedures)
 9. [Troubleshooting](#troubleshooting-common-issues)
 10. [Image Tag Strategy](#image-tag-strategy)
 11. [Environment Variables](#environment-variables)
-12. [Deployment Checklist](#github-push--final-checklist)
+12. [Historical — EKS Phase Operations](#historical--eks-phase-operations)
 
 ---
 
 ## Purpose
 
-This runbook documents the operational procedures for deploying, maintaining, and troubleshooting the Cloud-Native Appointment Scheduler platform running on AWS.
+This runbook documents the operational procedures for deploying,
+maintaining, and troubleshooting the Cloud-Native Appointment Scheduler
+platform **as it runs today** — EC2, CodeDeploy blue/green, GitHub-sourced
+CodePipeline. It is intended for platform engineers and DevOps operators
+responsible for CI/CD pipeline execution and production maintenance.
 
-It is intended for platform engineers and DevOps operators responsible for CI/CD pipeline execution, Kubernetes operations, and production maintenance.
+The platform was originally built and operated on Amazon EKS. That phase
+is preserved as a [historical appendix](#historical--eks-phase-operations)
+rather than deleted — it's real, evidenced work, just not what's currently
+live. Everything above that section describes current reality.
 
 ---
 
 ## System Overview
 
-The platform runs on AWS using a containerized architecture.
-
 ```
 User Traffic
     ↓
-Application Load Balancer
+Route 53 (appointments.emmanuelfornah.com)
     ↓
-Amazon EKS (Kubernetes Pods)
+Application Load Balancer (ACM/TLS)
     ↓
-Application Services
+EC2 Auto Scaling Group (CodeDeploy-managed, blue/green)
     ↓
-Amazon RDS (appointments data)
+Application Container (Docker)
+    ↓
+Amazon RDS MySQL (appointments data, IAM auth)
 Amazon DynamoDB (announcements)
 ```
 
 **CI/CD Pipeline Flow:**
 ```
-Git Push → CodePipeline → CodeBuild (Test) → CodeBuild (Build) → ECR → CodeBuild (Deploy) → EKS
+GitHub Push → CodePipeline (CodeStarSourceConnection) → CodeBuild (UnitTest)
+  → CodeBuild (BuildImage, ARM64) → ECR → CodeDeploy (blue/green to EC2)
 ```
 
 ---
@@ -57,40 +65,59 @@ Git Push → CodePipeline → CodeBuild (Test) → CodeBuild (Build) → ECR →
 
 | Resource | Name / Value |
 |----------|--------------|
-| EKS Cluster | `eks-cluster` |
-| ECR Repository | `containers-image-repository` |
-| CodePipeline | `ApplicationPipeline` |
-| CodeBuild — Unit Tests | `UnitTest` |
-| CodeBuild — Image Build | `BuildImage` |
-| CodeBuild — Deploy | `DeployPods` |
-| RDS Instance | `scheduler-db` |
-| RDS Database | `django_appointments` |
-| RDS User | `appointments_web` |
-| DynamoDB Table | `DEV_Announcement` |
-| Kubernetes Service Account | `appointments-sa` |
-| EKS Subnets | Private subnets (2 AZs) |
+| ECR Repository | `containers-image-repository` (immutable tags) |
+| CodePipeline | `appointments-pipeline` |
+| CodeBuild — Unit Tests | `appointments-unittest` |
+| CodeBuild — Image Build | `appointments-buildimage` (ARM_CONTAINER, Graviton) |
+| CodeDeploy Application | see `infra/codedeploy.tf` |
+| CodeDeploy Deployment Group | blue/green, `COPY_AUTO_SCALING_GROUP` |
+| RDS Instance | see `infra/rds.tf` — MySQL, IAM auth enabled |
+| RDS App User | dedicated IAM-auth user (`var.app_db_username`), distinct from the master account |
+| DynamoDB Table | salon announcements table |
+| EC2 Auto Scaling Group | **not statically named** — CodeDeploy deletes and recreates it on every deployment (`CodeDeploy_<app>-<deployment-id>`); see note below |
+| Access | AWS Systems Manager Session Manager only — no SSH, no bastion |
+
+**Why there's no fixed ASG name:** CodeDeploy's `COPY_AUTO_SCALING_GROUP`
+blue/green model doesn't scale the original ASG to zero after a
+deployment — it deletes it outright and hands live traffic to a new,
+differently-named ASG it creates. Don't `grep` for a static ASG name in
+scripts or alarms; find the current one with:
+
+```bash
+aws autoscaling describe-auto-scaling-groups \
+  --query "AutoScalingGroups[?contains(AutoScalingGroupName, 'CodeDeploy')].AutoScalingGroupName"
+```
 
 ---
 
-## Buildspec Files
+## Build Pipeline Configuration
 
-### buildspec_unittest.yml
+### buildspecs/buildspec_unittest.yml
 
 ```yaml
 version: 0.2
 
 phases:
   install:
+    runtime-versions:
+      python: 3.11
     commands:
-      - pip install -r requirements-dev.txt
+      - pip3 install -r requirements-dev.txt
   build:
     commands:
-      - pylint --fail-under=10 appointments/
+      - pylint --load-plugins pylint_django --django-settings-module=hairdresser_django.settings --ignore=migrations appointments/
       - coverage run --source='.' manage.py test appointments
-      - coverage report --fail-under=100
+      - coverage xml
+
+reports:
+  UnitTests:
+    files: ['unittests.xml']
+  NewCoverage:
+    files: ['coverage.xml']
+    file-format: COBERTURAXML
 ```
 
-### buildspec_buildimage.yml
+### buildspecs/buildspec_buildimage.yml
 
 ```yaml
 version: 0.2
@@ -103,105 +130,70 @@ phases:
   build:
     commands:
       - docker build -t appointments-app-container .
-      - docker tag appointments-app-container:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository:latest
-      - docker tag appointments-app-container:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository:staging-test-image
+      # ECR repo is IMMUTABLE — only the commit-SHA tag is used, since
+      # it's the one tag that unambiguously identifies this exact build.
       - docker tag appointments-app-container:latest $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository:${CODEBUILD_RESOLVED_SOURCE_VERSION}
   post_build:
     commands:
-      - docker push --all-tags $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository:${CODEBUILD_RESOLVED_SOURCE_VERSION}
+      - echo -n "${CODEBUILD_RESOLVED_SOURCE_VERSION}" > image_tag.txt
+
+artifacts:
+  files: [appspec.yml, image_tag.txt, "scripts/**/*"]
 ```
 
-### buildspec_deploypods.yml
+Note the environment: `ARM_CONTAINER` /
+`aws/codebuild/amazonlinux2-aarch64-standard:3.0`, not the default
+`LINUX_CONTAINER`. The EC2 fleet runs Graviton (t4g); building natively on
+ARM here avoids `buildx`/QEMU cross-compilation and the "exec format
+error" a mismatched x86_64 image would produce on boot.
 
-```yaml
-version: 0.2
-
-phases:
-  pre_build:
-    commands:
-      - aws eks update-kubeconfig --name eks-cluster
-  build:
-    commands:
-      - kubectl delete -f manifests/appointments-deployment.yml --ignore-not-found
-      - kubectl apply -f manifests/.
-      - sleep 30
-  post_build:
-    commands:
-      - aws elbv2 describe-load-balancers --query 'LoadBalancers[*].[DNSName]' --output text
-```
+There is no third "DeployPods"-equivalent CodeBuild project. CodePipeline's
+**native CodeDeploy action** replaces that stage entirely — it consumes
+`appspec.yml` + `scripts/` + `image_tag.txt` straight from the BuildImage
+artifact.
 
 ---
 
-## Kubernetes Manifests Summary
+## Deployment Mechanics — CodeDeploy Blue/Green
 
-### appointments-deployment.yml (key fields)
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: appointments-deployment
-spec:
-  replicas: 2
-  template:
-    metadata:
-      annotations:
-        kubernetes.io/change-cause: "Description of this deployment"
-    spec:
-      serviceAccountName: appointments-sa
-      containers:
-        - name: appointments-container
-          image: <ACCOUNT>.dkr.ecr.<REGION>.amazonaws.com/containers-image-repository:staging-test-image
-          env:
-            - name: DATABASE_HOST
-              value: "<RDS-ENDPOINT>"
-            - name: DATABASE_USER
-              value: "appointments_web"
-            - name: DATABASE_DB_NAME
-              value: "django_appointments"
-            - name: AWS_DEFAULT_REGION
-              value: "<REGION>"
-```
-
-### appointments-service.yml
+### appspec.yml
 
 ```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: appointments-service
-spec:
-  type: NodePort
-  selector:
-    app: appointments
-  ports:
-    - port: 8088
-      targetPort: 8088
+version: 0.0
+os: linux
+files:
+  - source: /
+    destination: /opt/appointments
+hooks:
+  ApplicationStop:
+    - location: scripts/stop_container.sh
+      timeout: 30
+  AfterInstall:
+    - location: scripts/start_container.sh
+      timeout: 90
+  ValidateService:
+    - location: scripts/validate_service.sh
+      timeout: 60
 ```
 
-### appointments-ingress.yml
+### scripts/start_container.sh (AfterInstall hook)
 
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: appointments-ingress
-  annotations:
-    kubernetes.io/ingress.class: alb
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
-spec:
-  rules:
-    - http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: appointments-service
-                port:
-                  number: 8088
-```
+Reads non-secret config from `/etc/appointments/*` (written by the launch
+template's user-data — kept in sync with Terraform, not duplicated),
+fetches the Django secret key from Secrets Manager, pulls the exact
+commit-SHA-tagged image, **runs `manage.py migrate --noinput` before
+starting the app** (idempotent — safe on every deploy, not just the
+first), then starts the container with `awslogs` log driver pointed at the
+app's CloudWatch log group.
+
+### The bootstrap chicken-and-egg (first deploy only)
+
+A brand-new ASG has no healthy hosts yet, so `DEPLOYMENT_STOP_ON_ALARM`
+blocks the very first deployment before it can ever produce a healthy host
+to clear the alarm. Fix: temporarily disable the alarm gate for exactly
+one bootstrap deployment, then re-enable it immediately after. Every
+deployment since the first has the alarm gate active.
 
 ---
 
@@ -210,42 +202,28 @@ spec:
 ### Deploy a New Version
 
 ```bash
-# Make code changes
 git add .
 git commit -m "Describe what changed"
 git push
-
-# Pipeline triggers automatically — nothing else needed
+# Pipeline triggers automatically via the GitHub CodeStarSourceConnection
 ```
+
+Infra-only changes (anything under `infra/`) do **not** trigger a
+deploy — the pipeline's V2 trigger excludes `infra/**` via `file_paths`,
+since Terraform never touches the running app.
 
 ### Check Pipeline Status
 
 ```bash
-aws codepipeline get-pipeline-state --name ApplicationPipeline
+aws codepipeline get-pipeline-state --name appointments-pipeline
 ```
 
-### Check Pod Status
+### Session Into a Running Instance (no SSH)
 
 ```bash
-kubectl get pods
-kubectl get deployments
-kubectl describe deployment appointments-deployment
-```
-
-### View Application Logs
-
-```bash
-# Get pod name
-kubectl get pods
-
-# View logs
-kubectl logs <pod-name>
-
-# Filter for errors
-kubectl logs <pod-name> | grep -i "error\|exception\|traceback"
-
-# Follow live logs
-kubectl logs -f <pod-name>
+aws ssm start-session --target <instance-id>
+docker ps
+docker logs appointments-app
 ```
 
 ### Get ALB DNS Name
@@ -260,142 +238,117 @@ aws elbv2 describe-load-balancers \
 
 ## Incident Response Quick Start
 
-When an incident occurs, follow this sequence:
-
-**1. Check pod health**
+**1. Check the live deployment's status**
 ```bash
-kubectl get pods
+aws deploy get-deployment --deployment-id <id>
 ```
 
-**2. Check recent deployment**
+**2. Find the current ASG and check instance health**
 ```bash
-kubectl rollout history deployment/appointments-deployment
+aws autoscaling describe-auto-scaling-groups \
+  --query "AutoScalingGroups[?contains(AutoScalingGroupName, 'CodeDeploy')]"
+aws elbv2 describe-target-health --target-group-arn <arn>
 ```
 
-**3. Inspect application logs**
+**3. Inspect application logs (SSM session, no SSH)**
 ```bash
-kubectl logs <pod-name>
+aws ssm start-session --target <instance-id>
+docker logs appointments-app
 ```
 
-**4. If deployment caused failure — immediate rollback**
+**4. If the new revision caused the failure**
+
+Blue/green with `DEPLOYMENT_STOP_ON_ALARM` rolls back automatically on an
+unhealthy-hosts alarm. If it hasn't (or the alarm gate was intentionally
+disabled), stop the deployment manually:
 ```bash
-kubectl rollout undo deployment/appointments-deployment
+aws deploy stop-deployment --deployment-id <id> --auto-rollback-enabled
 ```
 
 **5. Verify recovery**
 ```bash
-kubectl rollout status deployment/appointments-deployment
-kubectl get pods
+aws elbv2 describe-target-health --target-group-arn <arn>
+curl -I https://appointments.emmanuelfornah.com
 ```
 
 ---
 
 ## Rollback Procedures
 
-### Option A — Kubernetes Rollback (fastest, 1-2 min)
+### Option A — Automatic blue/green rollback (fastest)
 
-Use when: Wrong image deployed, pod crash loop, infrastructure issue
-
-```bash
-# View revision history
-kubectl rollout history deployment/appointments-deployment
-
-# Rollback to previous version
-kubectl rollout undo deployment/appointments-deployment
-
-# Rollback to specific revision
-kubectl rollout undo deployment/appointments-deployment --to-revision=3
-
-# Verify rollback completed
-kubectl rollout status deployment/appointments-deployment
-```
+CodeDeploy holds the previous fleet during the deployment window; a
+CloudWatch alarm on unhealthy hosts triggers rollback with no manual step.
 
 ### Option B — Git Revert Rollback (auditable, 5-10 min)
 
-Use when: Bad application code in production, want full audit trail
-
 ```bash
-# Find the bad commit
 git log --oneline -n 10
-
-# Revert it (creates new commit)
 git revert <bad-commit-sha> --no-edit
-
-# Push — pipeline auto-deploys the reverted state
-git push
+git push   # pipeline auto-rebuilds and redeploys the reverted state
 ```
 
-### Option C — ECR Tag Rollback (precise, 5 min)
+### Option C — Retry a specific pipeline execution's Deploy stage
 
-Use when: Need to deploy exactly a specific past commit
+The ECR tag is immutable — re-running a pipeline execution that already
+pushed its image once will fail trying to push the same tag again. If the
+image is still good and only the Deploy stage needs a retry:
 
 ```bash
-# Edit appointments-deployment.yml
-# Change image tag from 'staging-test-image' to the specific commit SHA
-# Example:
-#   image: <ACCOUNT>.dkr.ecr.<REGION>.amazonaws.com/containers-image-repository:abc1234
-
-kubectl apply -f manifests/appointments-deployment.yml
-kubectl rollout status deployment/appointments-deployment
+aws codepipeline retry-stage-execution \
+  --pipeline-name appointments-pipeline \
+  --stage-name Deploy \
+  --pipeline-execution-id <execution-id> \
+  --retry-mode FAILED_ACTIONS
 ```
 
 ---
 
 ## Troubleshooting Common Issues
 
-### Pods in CrashLoopBackOff
+### CodeDeploy can't provision instances (`IAM_ROLE_PERMISSIONS`)
+
+The error usually names the wrong service. Check CloudTrail for the
+actual denied API call before changing IAM — `ec2:RunInstances` called
+directly by the CodeDeploy service role is the common real cause, not the
+Auto Scaling permissions the error message implies.
+
+### App container can't reach AWS credentials (`NoCredentialsError`)
+
+Check the launch template's `metadata_options.http_put_response_hop_limit`
+— must be `2`, not `1`. A request from inside the Docker container to
+IMDS crosses one extra network hop beyond the host itself.
+
+### RDS "Access denied" despite correct IAM auth setup
+
+Two independent things to check, in order:
+1. Is the app connecting as its own dedicated IAM-auth user, not the RDS
+   master account? (`iam_database_authentication_enabled` alone doesn't
+   create or configure any MySQL user.)
+2. Is `DATABASES["default"]["PORT"]` explicitly set to `3306` in
+   `settings.py`? `django_iam_dbauth` defaults the auth-token port to
+   PostgreSQL's `5432` if unset — a token signed for the wrong port is
+   indistinguishable from a wrong password at the error-message level.
+
+### Pipeline fails at UnitTest stage
 
 ```bash
-kubectl describe pod <pod-name>   # check Events section
-kubectl logs <pod-name>           # check application error
-
-# Common causes:
-# - Wrong DATABASE_HOST value
-# - Wrong AWS_DEFAULT_REGION value
-# - RDS security group not allowing EKS node traffic
+# CodeBuild console → appointments-unittest → latest build → logs
+# Common causes: Pylint score dropped, coverage below 100%, import error in tests.py
 ```
 
-### Pipeline Fails at UnitTest Stage
+### Pipeline fails at BuildImage stage
 
 ```bash
-# Go to CodeBuild console → UnitTest project → latest build → logs
-
-# Common causes:
-# - Pylint score dropped (code quality issue)
-# - New code not tested (coverage below 100%)
-# - Import error in tests.py
+# Common causes: ECR login expired, Dockerfile syntax error,
+# wrong CodeBuild environment type (must be ARM_CONTAINER, not LINUX_CONTAINER)
 ```
 
-### Pipeline Fails at BuildImage Stage
+### ALB not routing traffic
 
 ```bash
-# Common causes:
-# - ECR login expired (handled by buildspec pre_build)
-# - Dockerfile syntax error
-# - Missing dependency in requirements-dev.txt
-```
-
-### Pipeline Fails at DeployPods Stage
-
-```bash
-# Common causes:
-# - kubectl not authorized (check CodeBuild IAM role)
-# - EKS cluster name mismatch in buildspec
-# - Manifest YAML syntax error
-```
-
-### ALB Not Routing Traffic
-
-```bash
-# Check target group health
 aws elbv2 describe-target-groups --query 'TargetGroups[*].[TargetGroupName,TargetType]'
-
-# Check subnet tags
-aws ec2 describe-subnets --filters "Name=tag:kubernetes.io/role/elb,Values=1"
-# Both private subnets must appear (one per AZ)
-
-# Check ALB controller pods
-kubectl get pods -n kube-system | grep aws-load-balancer
+aws elbv2 describe-target-health --target-group-arn <arn>
 ```
 
 ---
@@ -404,64 +357,70 @@ kubectl get pods -n kube-system | grep aws-load-balancer
 
 | Tag | When Updated | Use Case |
 |-----|-------------|----------|
-| `latest` | Every pipeline run | Quick reference to newest build |
-| `staging-test-image` | Every pipeline run | Stable deployment reference in manifests |
-| `$CODEBUILD_RESOLVED_SOURCE_VERSION` | Every pipeline run | Surgical rollback to exact commit |
-| `feature-ui-update` | Manual feature releases | Feature-specific version tag |
+| `$CODEBUILD_RESOLVED_SOURCE_VERSION` (commit SHA) | Every pipeline run | The **only** tag used — ECR repo is immutable, so this is the sole unambiguous reference to a specific build |
 
 ---
 
 ## Environment Variables
 
-### Required for Application (set in deployment manifest)
+### Non-secret config (written to `/etc/appointments/*` by user-data)
 
-| Variable | Value |
-|----------|-------|
-| `DATABASE_HOST` | RDS endpoint URL |
-| `DATABASE_USER` | `appointments_web` |
-| `DATABASE_DB_NAME` | `django_appointments` |
-| `AWS_DEFAULT_REGION` | AWS region (e.g. `us-east-1`) |
+| File | Value |
+|------|-------|
+| `aws_region` | AWS region |
+| `app_secret_arn` | Secrets Manager ARN for the Django secret key |
+| `database_host` | RDS endpoint |
+| `db_username` | App's dedicated IAM-auth DB user |
+| `db_name` | Database name |
+| `app_port` | Application port |
+| `log_group` | CloudWatch log group for container logs |
 
-### Required in AWS Code Editor (~/.bashrc)
-
-```bash
-export AWS_REGION="<your-region>"
-export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-export ECR_REPO_NAME="containers-image-repository"
-```
+No secret *values* are ever written to disk — only where to fetch them
+from at deploy time.
 
 ---
 
-## GitHub Push — Final Checklist
+## Historical — EKS Phase Operations
+
+The platform's original delivery ran on Amazon EKS. These procedures are
+preserved as evidence of that phase's real operational work (a genuine
+production incident diagnosed and fixed, a demonstrated rollback), not
+because they apply to the current EC2 deployment.
+
+### Original CI/CD Flow (CodeCommit → EKS)
+
+```
+Git Push → CodePipeline → CodeBuild (Test) → CodeBuild (Build) → ECR
+  → CodeBuild (Deploy: kubectl apply) → EKS
+```
+
+### Original Rollback Options
 
 ```bash
-cd ~/environment/appointments-app
+# Kubernetes-native rollback (~1-2 min)
+kubectl rollout history deployment/appointments-deployment
+kubectl rollout undo deployment/appointments-deployment --to-revision=<N>
 
-# Clean up build artifacts
-rm -rf htmlcov __pycache__ .coverage
-find . -name "*.pyc" -delete
-find . -name "__pycache__" -type d -exec rm -rf {} +
-
-# Verify screenshots folder exists
-ls screenshots/
-
-# Verify all buildspecs are committed
-ls buildspecs/
-# Expected: buildspec_unittest.yml, buildspec_buildimage.yml, buildspec_deploypods.yml
-
-# Verify manifests are committed
-ls manifests/
-# Expected: appointments-deployment.yml, appointments-service.yml, appointments-ingress.yml
-
-# Final commit
-git add .
-git commit -m "Final project — complete cloud-native CI/CD platform on AWS EKS"
-git push
-
-# Add GitHub remote and push
-git remote add github https://github.com/emmanuelfornah/aws-eks-cicd-capstone.git
-git push github main
+# Git revert + pipeline (~5-10 min, auditable)
+git revert <bad-commit> --no-edit && git push
 ```
+
+Both were tested and demonstrated during the EKS phase — see
+`screenshots/` for the rollout history and rollback evidence.
+
+### Original Incident: Pod Crash from Region Misconfiguration
+
+Diagnosed via `kubectl logs <pod-name>`, root-caused to a region
+mismatch, fixed and redeployed within minutes. See
+`screenshots/11_kubectl_pod_error_logs.png` and
+`screenshots/12_region_fix_deployed.png`.
+
+### Why This Phase Was Torn Down, Not Kept Running
+
+EKS's ~$0.10/hr (~$73/mo) control-plane charge ran regardless of traffic.
+For this workload's low, bursty volume, that cost bought no HA guarantee
+an ASG + ALB doesn't already provide — see `BUSINESS_CASE.md`'s
+"Why We Migrated" section for the full reasoning.
 
 ---
 
