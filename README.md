@@ -1,409 +1,142 @@
-# ☁️ Cloud-Native Appointment Scheduler — AWS EKS CI/CD Platform
+# Deployment Evolution — from EKS to EC2 Blue/Green, for Real
 
-![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)
-![Django](https://img.shields.io/badge/Django-5.0-green?logo=django)
-![Docker](https://img.shields.io/badge/Docker-Containerized-blue?logo=docker)
-![AWS EKS](https://img.shields.io/badge/AWS-EKS-orange?logo=amazon-aws)
-![CodePipeline](https://img.shields.io/badge/CI%2FCD-CodePipeline-purple?logo=amazon-aws)
-![Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen)
-![Pylint](https://img.shields.io/badge/Pylint-10.00%2F10-brightgreen)
+A cloud-native appointment scheduling platform (Python/Django, Docker,
+Amazon RDS + DynamoDB) that was **built twice, on purpose**: first on
+Amazon EKS to prove Kubernetes CI/CD end-to-end, then migrated to EC2 +
+CodeDeploy blue/green after a real cost/traffic review showed the
+control-plane cost bought no HA guarantee this workload needed. Both
+phases are real, evidenced, and documented below — this isn't a redo,
+it's the same engineering judgment call a team makes when a system
+outgrows (or never needed) its original compute choice.
 
-> A production-grade cloud-native appointment scheduling platform built with **Python/Django**, containerized with **Docker**, and deployed to **Amazon EKS** through a fully automated **CI/CD pipeline**.
+**Status key**, used consistently through this README:
+- ✅ **Live** — deployed right now, linked, verifiable
+- 📐 **Designed, not built** — reasoning + runbook exist, nothing deployed
+- 🗄️ **Built, verified, then torn down** — proven once, not left running (cost)
 
-Every `git push` automatically:
-- runs linting and unit tests
-- builds and version-tags a Docker container
-- pushes the image to Amazon ECR
-- deploys the application to Kubernetes on Amazon EKS
-
-**Zero manual deployment steps. Every change passes automated quality gates before reaching production.**
+**Portfolio context:** this project concludes a chain that starts in
+[`aws-solutions-portfolio`](https://github.com/emmanuelfornah/aws-solutions-portfolio)
+(45+ AWS Cloud Institute coursework projects — the breadth this was
+built from), continues in
+[`aws-compute-evolution`](https://github.com/emmanuelfornah/aws-compute-evolution)
+(the same EC2-vs-EKS tradeoff argued generally, across five compute
+paradigms on one small app), and lands here — that same tradeoff played
+out for real, at production stakes, on a live app with a real cost
+delta and real incidents. This repo is the deep dive; the other two are
+the breadth and the general case it's an instance of.
 
 ---
 
-## 📸 Screenshots
+## ✅ Live right now
 
-### Development & CI/CD Setup
+**[https://appointments.emmanuelfornah.com](https://appointments.emmanuelfornah.com)**
 
-| IDE Workspace | CodeCommit Repository |
+- AWS CodePipeline: GitHub (CodeStarSourceConnection) → CodeBuild (unit
+  tests) → CodeBuild (ARM64 Docker build) → CodeDeploy (blue/green to
+  EC2, Graviton/t4g)
+- Amazon RDS MySQL, IAM database authentication — no password in app
+  code or config
+- Amazon DynamoDB for salon announcements
+- Application Load Balancer, Route 53 alias record, ACM-issued TLS
+- No SSH anywhere — access via SSM Session Manager only, IMDSv2 enforced
+- Every IAM policy scoped to a specific resource ARN, least-privilege throughout
+
+Getting from a clean `terraform apply` to this actually being live took
+7 distinct, real bugs — IAM permission gaps CloudTrail had to reveal,
+an IMDS hop-limit issue specific to Docker, an RDS IAM-auth port bug
+buried in a third-party library. Full write-up: `DEPLOYMENT_CODEBUILD.md`
+(private notes — the public version of these stories lives in interview
+conversation, not this README).
+
+## Architecture (current, EC2 phase)
+
+| Layer | Implementation |
 |---|---|
-| ![IDE](screenshots/01_ide_workspace_setup.png) | ![Repo](screenshots/02_codecommit_repository.png) |
-
-| Application — Initial Launch | Appointment Timeslot Selection |
-|---|---|
-| ![App](screenshots/03_application_initial_launch.png) | ![Timeslots](screenshots/04_appointment_timeslot_selection.png) |
-
-### Test Coverage & Pipeline
-
-| 100% Test Coverage | Coverage — Views Module |
-|---|---|
-| ![100%](screenshots/05_unit_test_coverage_100.png) | ![Views](screenshots/06_coverage_views_module.png) |
-
-| Full Coverage Report | Template Update Push |
-|---|---|
-| ![Full](screenshots/07_coverage_full_report.png) | ![Push](screenshots/08_template_update_push.png) |
-
-| CodeBuild Succeeded | Pipeline — All Stages Green |
-|---|---|
-| ![Build](screenshots/09_codebuild_succeeded.png) | ![Pipeline](screenshots/10_pipeline_all_stages_green.png) |
-
-### Troubleshooting & Rollbacks
-
-| Pod Error Logs — Region Misconfiguration | Region Fix Deployed Successfully |
-|---|---|
-| ![Logs](screenshots/11_kubectl_pod_error_logs.png) | ![Fix](screenshots/12_region_fix_deployed.png) |
-
-| Orange Template Update | Pipeline — Orange Build Succeeded |
-|---|---|
-| ![Orange](screenshots/13_base_template_orange_update.png) | ![Pipeline](screenshots/14_pipeline_orange_build_succeeded.png) |
-
-| Application — Orange Background | Pipeline — Cadetblue Build Succeeded |
-|---|---|
-| ![Orange App](screenshots/15_app_orange_background.png) | ![Cadetblue Pipeline](screenshots/16_pipeline_cadetblue_build_succeeded.png) |
-
-| Application — Cadetblue Background | Rollout History |
-|---|---|
-| ![Cadetblue](screenshots/17_app_cadetblue_background.png) | ![History](screenshots/18_rollout_history.png) |
-
-| Rollback to Orange |
-|---|
-| ![Rollback](screenshots/19_rollback_to_orange.png) |
-
-### ALB Migration & EKS Cluster
-
-| EKS Cluster Verified | ALB Controller Installed |
-|---|---|
-| ![EKS](screenshots/20_eks_cluster_verified.png) | ![ALB](screenshots/21_alb_controller_installed.png) |
-
-| Helm Installed |
-|---|
-| ![Helm](screenshots/22_helm_installed.png) |
-
-### Deploy Pipeline — Automated EKS Deployment
-
-| Deploy Buildspec Configuration | Application Running via ALB |
-|---|---|
-| ![Buildspec](screenshots/deploy-pipeline/01-deploy-buildspec-configuration.png) | ![Running](screenshots/deploy-pipeline/02-application-running-verification.png) |
-
-| Pipeline — All 4 Stages Succeeded | UI Theme Update — Cadetblue |
-|---|---|
-| ![Pipeline](screenshots/deploy-pipeline/03-pipeline-all-stages-succeeded.png) | ![Theme](screenshots/deploy-pipeline/04-ui-theme-update-cadetblue.png) |
-
-| Cadetblue Deployed | Git Revert — Rollback to Original |
-|---|---|
-| ![Deployed](screenshots/deploy-pipeline/05-ui-cadetblue-deployed.png) | ![Revert](screenshots/deploy-pipeline/06-git-revert-rollback-to-original.png) |
-
----
-
-## 🏗️ Architecture
-
-### Complete CI/CD Platform
-
-![Full Architecture](screenshots/architecture/cicd-pipeline-eks-architecture.png)
-
-The architecture illustrates the end-to-end CI/CD workflow:
-
-1. **Developer** pushes code changes from the AWS Code Editor IDE
-2. **AWS CodeCommit** hosts the private Git repository and triggers the pipeline on every push
-3. **AWS CodePipeline** orchestrates the full CI/CD workflow across four stages:
-   - **UnitTest** — CodeBuild runs Pylint (10/10) and coverage (100%) as a quality gate
-   - **BuildImage** — CodeBuild builds the Docker container and pushes to Amazon ECR with three version tags
-   - **DeployPods** — CodeBuild runs `kubectl apply` to deploy the application onto Amazon EKS
-4. **Amazon ECR** stores and manages the versioned Docker container images
-5. **Amazon EKS** runs the Kubernetes cluster with rolling deployments and ALB ingress
-6. **Application Frontend** is served through the AWS Application Load Balancer and connects to:
-   - **Amazon RDS (MySQL)** — appointment bookings, hairdressers, and services via IAM token auth + SSL/TLS
-   - **Amazon DynamoDB** — salon announcements with schema-free, instant updates
-
----
-
-## ⚙️ System Workflow
-
-```
-Developer
-│
-▼
-git push
-│
-▼
-AWS CodeCommit
-│
-▼
-AWS CodePipeline
-│
-├─ UnitTest Stage ──────────────── Pylint (10/10 required)
-│                                  Coverage (100% required)
-│                                  ❌ Fails here → nothing deploys
-│
-├─ BuildImage Stage ────────────── Docker build
-│                                  Image tagged: latest + staging + commit SHA
-│                                  Push to Amazon ECR
-│
-└─ DeployPods Stage ────────────── kubectl apply
-                                   Deploy to Amazon EKS
-         │
-         ▼
-App exposed via AWS Application Load Balancer
-Backed by Amazon RDS (MySQL) + DynamoDB
-```
-
----
-
-## 🔄 Automated Deployment Pipeline
-
-```
-┌──────────┐   ┌─────────────┐   ┌──────────────┐   ┌────────────┐
-│  Source  │──▶│  UnitTest   │──▶│  BuildImage  │──▶│ DeployPods │
-│CodeCommit│   │Pylint 10/10 │   │ Docker + ECR │   │ kubectl    │
-│          │   │100% coverage│   │   3 tags     │   │   EKS      │
-└──────────┘   └─────────────┘   └──────────────┘   └────────────┘
-     ❌                  ❌                 ❌
-Fail = stop         Fail = stop        Fail = alert
-```
-
----
-
-## 🛠️ Tech Stack
-
-| Category | Technology |
-|----------|-----------|
-| Language | Python 3.11 |
-| Framework | Django 5.0 |
-| Relational DB | Amazon RDS MySQL — IAM token auth + SSL/TLS |
-| NoSQL DB | Amazon DynamoDB — salon announcements |
-| Containerization | Docker |
-| Container Registry | Amazon ECR |
-| Orchestration | Amazon EKS (Kubernetes) |
-| Load Balancer | AWS ALB via Helm + AWS Load Balancer Controller |
-| CI/CD | AWS CodePipeline + CodeBuild (3 build stages) |
-| Source Control | AWS CodeCommit |
-| Testing | Coverage.py 100%, Pylint 10.00/10 |
-| IDE | AWS Code Editor (cloud VS Code) |
-
----
-
-## 📁 Project Structure
-
-```
-appointments-app/
-├── manage.py
-├── Dockerfile
-├── requirements-dev.txt
-├── local_build.sh
-│
-├── hairdresser-django/
-│   └── settings.py              # Conditional RDS/SQLite config
-│
-├── appointments/
-│   ├── views.py                 # Business logic + DynamoDB + RDS
-│   ├── tests.py                 # 100% coverage + mock_scan
-│   ├── models.py                # Appointment, Hairdresser, Service
-│   └── templates/appointments/
-│       ├── index.html           # Booking UI + announcements
-│       └── base.html            # Base layout
-│
-├── buildspecs/
-│   ├── buildspec_unittest.yml   # Stage 1: Pylint + coverage
-│   ├── buildspec_buildimage.yml # Stage 2: Docker + ECR
-│   └── buildspec_deploypods.yml # Stage 3: kubectl EKS
-│
-└── manifests/
-    ├── appointments-deployment.yml
-    ├── appointments-service.yml
-    └── appointments-ingress.yml  # ALB ingress
-```
-
----
-
-## 🚀 Getting Started
-
-### Local Run (SQLite)
-
-```bash
-git clone <repo-url>
-cd appointments-app
-pip install -r requirements-dev.txt
-python manage.py migrate
-python manage.py runserver 0.0.0.0:8088
-```
-
-### Local Run (RDS)
-
-```bash
-export DATABASE_HOST="<rds-endpoint>"
-export DATABASE_USER="appointments_web"
-export DATABASE_DB_NAME="django_appointments"
-export AWS_DEFAULT_REGION="<region>"
-
-python manage.py migrate
-python manage.py runserver 0.0.0.0:8088
-```
-
----
-
-## 🧪 Testing
-
-```bash
-coverage run --source='.' manage.py test appointments
-coverage html        # opens htmlcov/index.html
-
-./local_build.sh     # full Pylint + coverage check
-```
-
-| Metric | Result |
-|--------|--------|
-| Statements Covered | 161 |
-| Test Coverage | **100%** |
-| Pylint Score | **10.00 / 10** |
-| Test Strategy | Unit tests with mocked DynamoDB calls |
-
----
-
-## 🐳 Docker
-
-```bash
-docker build -t appointments-app-container .
-
-docker run -it --rm -p 8088:8088 \
-  -e DATABASE_HOST -e DATABASE_USER \
-  -e DATABASE_DB_NAME -e AWS_DEFAULT_REGION \
-  appointments-app-container
-
-docker tag appointments-app-container:latest \
-  $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository:latest
-
-docker push --all-tags \
-  $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/containers-image-repository
-```
-
----
-
-## ☸️ Kubernetes
-
-```bash
-kubectl apply -f appointments-app/manifests/.
-
-kubectl get deployments && kubectl get pods
-
-kubectl rollout history deployment/appointments-deployment
-
-kubectl rollout undo deployment/appointments-deployment --to-revision=3
-
-git revert <commit-id> --no-edit && git push   # full pipeline rollback
-```
-
----
-
-## 🧠 Production Engineering Practices
-
-- Zero-downtime rolling deployments on Kubernetes
-- IAM token authentication for RDS — no passwords stored anywhere
-- SSL/TLS enforced on all RDS connections
-- Environment-driven config — SQLite locally, RDS in cloud
-- Commit-SHA image tags enable precise, auditable rollbacks
-- Dual rollback strategy: `kubectl rollout undo` AND `git revert`
-- ALB health checks on all target pods
-- Buildspecs split by responsibility — test, build, deploy are fully independent
-
----
-
-## 🧩 Architecture Decisions
-
-### Why Kubernetes (EKS)?
-
-Kubernetes enables rolling deployments, container orchestration, and horizontal scalability. The deployment strategy ensures new pods start before old ones terminate — enabling zero-downtime releases without any custom scripting.
-
-### Why CodePipeline?
-
-AWS CodePipeline orchestrates the entire CI/CD workflow with clear stage separation (test → build → deploy). Each stage is independently configurable and auditable, making the pipeline fully reproducible across environments.
-
-### Why Multi-Tag Container Images?
-
-Images are tagged with three distinct identifiers:
-
-| Tag | Purpose |
-|-----|---------|
-| `latest` | Always points to the most recent build |
-| `staging-test-image` | Stable reference used in Kubernetes manifests |
-| `$CODEBUILD_RESOLVED_SOURCE_VERSION` | Commit SHA — enables rollback to any exact historical build |
-
-This enables both quick rollbacks and precise deployment of historical builds without rebuilding.
-
-### Why RDS + DynamoDB?
-
-The system deliberately separates concerns across two database technologies:
-
-| Data Type | Database | Reason |
-|-----------|----------|--------|
-| Appointment bookings, hairdressers, services | Amazon RDS MySQL | Relational integrity, transactions, foreign keys |
-| Salon announcements, dynamic messaging | Amazon DynamoDB | Schema-free, instant updates, no migrations needed |
-
-Salon staff can update announcements in DynamoDB without any code deployment or database migration.
-
----
-
-## 🎯 DevOps Skills Demonstrated
-
-| Skill | Evidence |
-|-------|---------|
-| CI/CD Pipeline Design | 4-stage CodePipeline, fully automated from push to deploy |
-| Container Engineering | Multi-tag Docker strategy, ECR lifecycle management |
-| Kubernetes Operations | Deployments, Services, Ingress, rollback history |
-| Infrastructure as Code | Kubernetes manifests and automated buildspec pipelines |
-| Cloud Networking | ALB via Helm, subnet tagging, NodePort routing |
-| Database Engineering | RDS MySQL + DynamoDB, IAM auth, SSL/TLS |
-| Test Automation | 100% coverage + Pylint 10/10 enforced as pipeline gate |
-| Troubleshooting | kubectl logs diagnosis, bug fix, redeployment in 3 min |
-| Rollback Strategy | Both kubectl rollout undo AND git revert demonstrated |
-| Security | IAM roles, no hardcoded credentials, SSL everywhere |
-
----
-
-## ✅ Key Accomplishments
-
-- Achieved **100% test coverage** across 161 statements with **Pylint 10/10** — enforced as automated pipeline gates
-- Designed and implemented a **4-stage CI/CD pipeline** (Source → UnitTest → BuildImage → DeployPods) with zero manual intervention
-- Integrated **Amazon DynamoDB** for real-time salon announcements with fully mocked unit tests
-- Migrated the database layer from SQLite to **Amazon RDS MySQL** with IAM token authentication and SSL/TLS encryption
-- Containerized the full application with **Docker** and implemented a **multi-tag versioning strategy** (latest, staging, commit SHA) on Amazon ECR
-- Deployed and managed the application on **Amazon EKS** with Kubernetes rolling deployments and health-checked ALB ingress
-- Diagnosed and resolved a production pod failure by analyzing **kubectl logs** — identified region misconfiguration and redeployed within minutes
-- Implemented **dual rollback capability** — both `kubectl rollout undo` for instant Kubernetes rollback and `git revert` for full pipeline-driven redeployment
-- Migrated from Classic Load Balancer to **Application Load Balancer** using Helm and the AWS Load Balancer Controller
-- Automated the complete deployment lifecycle — every `git push` triggers quality gates, container builds, and Kubernetes deployment
-
----
-
-## 🔮 Future Improvements
-
-Potential enhancements for a production deployment:
-
-- **Horizontal Pod Autoscaler** — dynamic scaling based on real-time traffic load
-- **Prometheus + Grafana** — observability, dashboards, and alerting stack
-- **Blue/Green or Canary deployments** — safer progressive releases with instant cutover
-- **AWS Secrets Manager** — centralized, rotatable database credential management
-- **Terraform or AWS CDK** — fully reproducible infrastructure provisioning as code
-- **Distributed tracing** — AWS X-Ray or OpenTelemetry for request-level visibility
-- **Multi-region deployment** — active-active architecture for high availability
-
----
-
-## 💡 Key Takeaway
-
-This project demonstrates how a traditional web application can be transformed into a fully automated cloud-native platform using AWS-native services. The result is a system where code quality, security, and deployment reliability are enforced by infrastructure — not by convention.
-
-**Every push. Every time. Automatically.**
-
----
-
-## 👤 Author
-
-**Emmanuel Fornah** — AWS Cloud Developer | DevOps Engineer
-
-[![GitHub](https://img.shields.io/badge/GitHub-emmanuelfornah-black?logo=github)](https://github.com/emmanuelfornah)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-blue?logo=linkedin)](https://linkedin.com/in/emmanuelfornah)
-
----
-
-*Full cloud-native development and deployment lifecycle on AWS.*
-
-📄 [Business Case](BUSINESS_CASE.md) · 📘 [Technical Runbook](TECHNICAL_RUNBOOK.md)
+| Compute | EC2 (Graviton/t4g) behind an ALB; CodeDeploy owns the Auto Scaling Group after first deploy (see note below) |
+| Deployment | AWS CodeDeploy, blue/green with traffic control — new revision health-checked before taking production traffic |
+| Backend | Python 3.11, Django 5.0 |
+| Relational data | Amazon RDS MySQL — IAM database authentication, encrypted at rest |
+| NoSQL data | Amazon DynamoDB (salon announcements) — encrypted, point-in-time recovery |
+| Secrets | AWS Secrets Manager for the one app secret; RDS master credential generated/rotated by RDS itself |
+| Networking | Custom VPC, 3-tier subnets, security groups chained internet → ALB → app → RDS, VPC Flow Logs |
+| Access | SSM Session Manager only, IMDSv2 enforced |
+| CI/CD | GitHub → CodePipeline (CodeStarSourceConnection) → CodeBuild → CodeBuild → CodeDeploy |
+
+**Note on the ASG:** CodeDeploy's blue/green model (`COPY_AUTO_SCALING_GROUP`)
+doesn't scale the original ASG to zero after a deploy — it deletes it
+and creates a new one every time. Terraform owns the launch template;
+CodeDeploy owns the live ASG identity. This is why seasonal
+auto-scaling schedules (below) are currently disabled rather than
+quietly broken.
+
+## 🗄️ Phase 1 — EKS (built, verified, torn down)
+
+The original build proved the same application on Kubernetes: AWS
+CodeCommit → CodePipeline → CodeBuild → `kubectl apply` → EKS, ALB
+ingress via the AWS Load Balancer Controller, a real production
+incident (pod crash from a region misconfiguration, diagnosed via
+`kubectl logs` and fixed in minutes), and a demonstrated rollback via
+both `kubectl rollout undo` and `git revert`. Full screenshot evidence —
+CI/CD stages, coverage reports, the rollback sequence, the EKS cluster
+itself — is preserved in `screenshots/`.
+
+This was deliberately torn down after verification (EKS's ~$73/mo
+control-plane charge doesn't make sense to run continuously for a demo
+project) rather than left live — the same cost-discipline that later
+drove the migration decision below.
+
+## Why the migration (EKS → EC2)
+
+- EKS's control plane is a fixed ~$0.10/hr (~$73/mo) charge regardless
+  of traffic — for low, bursty appointment-booking traffic, that line
+  bought no HA guarantee an ASG + ALB doesn't already provide.
+- The migration kept the same VPC, IAM posture, and HA characteristics
+  (multi-AZ, self-healing, zero-downtime blue/green) while cutting
+  estimated run cost from ~$180-220/mo to ~$50-70/mo.
+- Kubernetes competency is still demonstrated and evidenced (Phase 1,
+  above) — this isn't "EKS is bad," it's recognizing when a simpler,
+  cheaper architecture serves the same workload equally well. See
+  [`aws-compute-evolution`](https://github.com/emmanuelfornah/aws-compute-evolution)
+  for that same tradeoff argued generally, across five compute models.
+
+## 📐 Designed, not built
+
+- **Cross-region DR** — pilot-light design (`us-east-2` primary /
+  `us-west-2` DR): RDS cross-region read replica, DynamoDB Global
+  Table, ECR replication, idle standby ASG, Route 53 failover. Target
+  RTO ~10-20 min, RPO seconds-to-minutes. Deliberately built on demand
+  (near an actual interview date), not left running — see
+  `DR_RUNBOOK.md` and `DR_SCENARIO.md` for the full design and the
+  reasoning behind the region pairing.
+- **Seasonal auto-scaling** — two scheduled capacity actions were
+  written, then found to conflict with CodeDeploy's ASG-replacement
+  behavior and disabled pending a Lambda-based redesign that can look
+  up the current live ASG dynamically instead of naming it statically.
+- **CloudWatch monitoring stack** — agent-based disk/memory metrics,
+  threshold alarms, SNS notification — in progress.
+
+## Security posture
+
+- Every IAM policy scoped to a specific resource ARN except the one
+  AWS action with no resource-level scoping (`ecr:GetAuthorizationToken`)
+- IAM database authentication — no long-lived DB password
+- Immutable ECR image tags — a deployed image reference can't be
+  silently repointed
+- IMDSv2 enforced, EBS encrypted, images scanned on push
+- STRIDE threat model documented in `SECURITY.md`
+
+## Cost
+
+| | EKS (Phase 1, torn down) | EC2 (Phase 2, live) |
+|---|---|---|
+| Control plane | ~$73/mo | $0 |
+| Compute (multi-AZ) | ~$60/mo | ~$15-30/mo |
+| NAT | ~$32/mo (or ~$3/mo NAT instance) | same |
+| ALB | ~$20/mo | ~$20/mo |
+| RDS (single-AZ, small) | ~$15/mo | ~$15/mo |
+| **Total (estimated)** | **~$180-220/mo** | **~$50-70/mo** |
+
+## Local development
+
+Supports both local SQLite (default) and RDS via environment
+variables — see `hairdresser_django/settings.py`.
