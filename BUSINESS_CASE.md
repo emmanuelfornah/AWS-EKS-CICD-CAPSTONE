@@ -6,9 +6,24 @@
 
 ## Executive Summary
 
-This project delivers a production-grade appointment scheduling application for a hair salon client. The solution transforms an incomplete Django application into a fully automated, cloud-native platform capable of reliable deployments, automated quality enforcement, and zero-downtime updates.
+This project delivers a production-grade appointment scheduling application
+for a hair salon client. The solution transforms an incomplete Django
+application into a fully automated, cloud-native platform capable of
+reliable deployments, automated quality enforcement, and zero-downtime
+updates.
 
-The delivered solution runs on Amazon EKS, backed by Amazon RDS and DynamoDB, deployed through a fully automated AWS CI/CD pipeline. Every code change is automatically tested, containerized, and deployed — with full rollback capability — without any manual intervention.
+**The platform runs today** on EC2 behind an Application Load Balancer,
+backed by Amazon RDS and DynamoDB, deployed through a fully automated AWS
+CodePipeline. Every code change is automatically tested, containerized, and
+deployed via blue/green cutover — with full rollback capability — without
+any manual intervention. Live at
+[appointments.emmanuelfornah.com](https://appointments.emmanuelfornah.com).
+
+It didn't start there. The platform was originally delivered on Amazon EKS,
+built and verified end-to-end, then migrated to EC2 after a real cost/traffic
+review showed the Kubernetes control plane bought no availability guarantee
+this workload needed. Both phases are real and evidenced — see
+[Why We Migrated](#why-we-migrated-eks--ec2) below.
 
 ---
 
@@ -40,17 +55,19 @@ The delivered solution runs on Amazon EKS, backed by Amazon RDS and DynamoDB, de
 - Dynamic salon announcements powered by Amazon DynamoDB
 - Available slot count displayed to customers before booking
 
-### Infrastructure Delivered
+### Infrastructure Delivered (current — EC2 phase, live)
 
 | Component | Service | Purpose |
 |-----------|---------|---------|
-| Compute | Amazon EKS | Containerized application, 2 replicas |
-| Database | Amazon RDS MySQL | Appointment and scheduling data |
+| Compute | EC2 (Graviton/t4g), Auto Scaling Group | Containerized application, blue/green deployment |
+| Deployment | AWS CodeDeploy | Zero-downtime blue/green cutover with automatic rollback on alarm |
+| Database | Amazon RDS MySQL | Appointment and scheduling data, IAM database authentication |
 | NoSQL | Amazon DynamoDB | Real-time salon announcements |
-| Container Registry | Amazon ECR | Versioned Docker image storage |
+| Container Registry | Amazon ECR | Versioned Docker image storage (immutable, commit-SHA tags) |
 | Load Balancer | AWS ALB | Traffic routing, health checks |
+| DNS / TLS | Route 53 + ACM | Custom domain, valid HTTPS |
 | CI/CD | AWS CodePipeline + CodeBuild | Automated test, build, deploy |
-| Source Control | AWS CodeCommit | Code versioning and pipeline trigger |
+| Source Control | GitHub (CodeStarSourceConnection) | Code versioning and pipeline trigger |
 
 ### Quality Metrics Achieved
 
@@ -59,13 +76,13 @@ The delivered solution runs on Amazon EKS, backed by Amazon RDS and DynamoDB, de
 | Test Coverage | 98% | **100%** |
 | Pylint Code Quality | Unknown | **10.00 / 10** |
 | Deployment Process | Manual | **Fully Automated** |
-| Rollback Capability | None | **< 5 minutes** |
-| Database | SQLite (local only) | **Amazon RDS MySQL (multi-user)** |
-| Infrastructure | None | **Production-grade EKS** |
+| Rollback Capability | None | **Automatic, alarm-gated (blue/green)** |
+| Database | SQLite (local only) | **Amazon RDS MySQL, IAM auth (multi-user)** |
+| Infrastructure | None | **Live, HA, custom domain over HTTPS** |
 
 ---
 
-## Platform Architecture
+## Platform Architecture (current)
 
 ### System Architecture
 
@@ -73,164 +90,160 @@ The delivered solution runs on Amazon EKS, backed by Amazon RDS and DynamoDB, de
 Users
   │
   ▼
-Application Load Balancer
+Route 53 (appointments.emmanuelfornah.com)
   │
   ▼
-Amazon EKS Cluster
+Application Load Balancer (ACM/TLS)
   │
-  ├─ Django Pod (replica 1)
-  └─ Django Pod (replica 2)
+  ▼
+EC2 Auto Scaling Group (blue/green, CodeDeploy-managed)
   │
-  ├─ Amazon RDS MySQL (appointments data)
+  ├─ Amazon RDS MySQL (appointments data, IAM auth)
   └─ Amazon DynamoDB (announcements)
 ```
 
 ### CI/CD Pipeline Architecture
 
 ```
-Git Push
+GitHub Push
   │
   ▼
-AWS CodePipeline
+AWS CodePipeline (CodeStarSourceConnection)
   │
   ▼
 CodeBuild: UnitTest
   │
   ▼
-CodeBuild: BuildImage
+CodeBuild: BuildImage (ARM64, native Graviton build)
   │
   ▼
 Docker → Amazon ECR
   │
   ▼
-CodeBuild: DeployPods
+CodeDeploy: blue/green cutover to EC2
   │
   ▼
-EKS Deployment (live in < 60 seconds)
+Live, health-checked, old fleet held for rollback window
 ```
 
 ---
 
-## Technical Architecture
+## Why We Migrated (EKS → EC2)
 
-### CI/CD Pipeline Design
+- EKS's control plane is a fixed ~$0.10/hr (~$73/mo) charge regardless of
+  traffic — for low, bursty appointment-booking traffic, that line bought no
+  HA guarantee an Auto Scaling Group + ALB doesn't already provide.
+- The migration kept the same VPC, IAM posture, and HA characteristics
+  (multi-AZ, self-healing, zero-downtime deploys) while cutting estimated
+  run cost from ~$180-220/mo to ~$50-70/mo.
+- Kubernetes competency is still demonstrated and evidenced — the original
+  EKS build was completed, verified end-to-end (rolling deploys, rollback,
+  a real production incident diagnosed via `kubectl logs` and fixed), then
+  deliberately torn down once proven, rather than left running at a cost
+  the workload didn't justify.
+- Getting from "Terraform applies cleanly" to "actually live" on EC2 took 7
+  distinct, real bugs — IAM permission gaps only CloudTrail could reveal, a
+  Docker/IMDS hop-limit issue, and a third-party library defaulting to the
+  wrong database port. Each was found via direct evidence, not guessed.
 
-```
-Developer pushes code
-│
-▼
-AWS CodeCommit (main branch)
-│
-▼ (automatic trigger)
-AWS CodePipeline
-│
-┌────┴────────────────────────────────┐
-│                                     │
-▼                                     │
-CodeBuild: UnitTest                       │
-- Pylint score must = 10.00/10            │
-- Coverage must = 100%                    │
-- If either fails → pipeline stops        │
-│                                     │
-▼                                     │
-CodeBuild: BuildImage                     │
-- Docker image built                      │
-- Tagged: latest, staging, commit SHA     │
-- Pushed to Amazon ECR                    │
-│                                     │
-▼                                     │
-CodeBuild: DeployPods                     │
-- kubectl apply to EKS cluster            │
-- ALB DNS name output                     │
-- App live in < 60 seconds                │
-│                                     │
-└─────────────────────────────────────┘
-```
+---
 
-### Security Design Decisions
+## Security Design Decisions
 
-**IAM Token Authentication for RDS**
+**IAM Database Authentication for RDS**
 
-Database connections use AWS IAM token authentication — no passwords are stored in environment variables, code, or configuration files. Tokens are generated per-session and expire automatically.
+Database connections use AWS IAM token authentication — no long-lived
+password is stored in environment variables, code, or configuration files.
+Tokens are generated per-session and expire automatically. The app
+authenticates as a dedicated, least-privilege database user — never as the
+RDS master account.
 
-**SSL/TLS for All Database Connections**
+**No SSH, No Hardcoded Credentials**
 
-All RDS connections enforce SSL/TLS using the AWS CA certificate bundle. Data in transit is always encrypted.
+Instance access is exclusively via AWS Systems Manager Session Manager —
+no SSH keypairs, no open port 22, every session logged to CloudTrail. All
+sensitive values (database host, region, secret ARN) are passed via the EC2
+instance role, scoped to exactly the resources the app needs.
 
-**No Hardcoded Credentials Anywhere**
+**IMDSv2 Enforced**
 
-All sensitive values (database host, username, region) are passed as environment variables injected at runtime by the EKS service account, which uses an IAM role with least-privilege permissions.
+Instance metadata requires IMDSv2 tokens (`http_tokens = required`), closing
+the SSRF-to-credential-theft path IMDSv1 allows.
 
-**Separate Service Account**
+**Immutable Image Tags**
 
-The `appointments-sa` Kubernetes service account is bound to an IAM role with only the permissions the application needs — no over-privileged access.
+Every deployed image is tagged with its commit SHA and cannot be
+overwritten — a running deployment always traces back to an exact, specific
+commit.
 
 ---
 
 ## Non-Functional Requirements
 
 ### Availability
-- Application deployed with 2 replicas behind ALB
-- Health checks ensure traffic only routes to healthy pods
-- Zero-downtime deployments via rolling updates
+- Multi-AZ Auto Scaling Group behind an ALB
+- Health checks ensure traffic only routes to healthy instances
+- Zero-downtime blue/green deployments with an automatic rollback window
 
 ### Scalability
-- EKS horizontal scaling supported via replica updates
+- Horizontal scaling via Auto Scaling Group capacity
 - Stateless application design enables seamless scaling
 - RDS and DynamoDB handle increased load independently
 
 ### Security
-- IAM-based authentication for database access
-- TLS encryption for all database traffic
-- Least-privilege IAM roles for service accounts
-- No credentials stored in code or environment variables
+- IAM database authentication — no long-lived DB password
+- No SSH anywhere; SSM Session Manager only, logged to CloudTrail
+- Least-privilege IAM roles scoped to specific resource ARNs
+- IMDSv2 enforced, EBS encrypted, images scanned on push
 
 ### Deployment Reliability
-- CI/CD pipeline enforces code quality gates (Pylint 10/10)
-- 100% test coverage requirement before deployment
-- Automated rollback capability in under 5 minutes
-- Full audit trail via Git commit history
+- CI/CD pipeline enforces code quality gates before any deploy
+- Blue/green deployment with alarm-gated automatic rollback
+- Full audit trail via Git commit history and immutable image tags
 
 ### Performance
 - Application responds in < 2 seconds for booking requests
-- ALB distributes load across multiple pods
+- ALB distributes load across multiple instances
 - Database queries optimized with proper indexing
 
 ---
 
 ## Risk Management
 
-### Rollback Strategy — Two Approaches Implemented
+### Rollback Strategy
 
-**Approach 1: Kubernetes Rollback (< 2 minutes)**
+**Blue/green automatic rollback (current, EC2)**
 
-```bash
-kubectl rollout history deployment/appointments-deployment
-kubectl rollout undo deployment/appointments-deployment --to-revision=<N>
-```
+CodeDeploy holds the previous fleet up during a configured window; a
+CloudWatch alarm on unhealthy hosts triggers an automatic rollback if the
+new revision fails health checks — no manual step required for the common
+failure case.
 
-Used when: Infrastructure-level issue, wrong image tag deployed
-
-**Approach 2: Git Revert + Pipeline (< 10 minutes)**
+**Git revert + pipeline (any phase)**
 
 ```bash
 git revert <bad-commit> --no-edit
 git push
-# Pipeline automatically redeploys the reverted state
+# Pipeline automatically rebuilds and redeploys the reverted state
 ```
 
-Used when: Bad application code reached production, creates auditable history
+Used when bad application code reached production and an auditable,
+reviewable fix is preferred over an infrastructure-level rollback.
 
-Both approaches were tested and demonstrated during the project.
+*(The original EKS phase additionally demonstrated `kubectl rollout undo`
+as a Kubernetes-native rollback path — see `screenshots/` for that
+evidence.)*
 
 ### Quality Gates — Automated Enforcement
 
-The pipeline enforces non-negotiable quality standards before any code reaches ECR or EKS:
+The pipeline enforces non-negotiable quality standards before any code
+reaches ECR or production:
 
 - Pylint score below 10.00 → pipeline fails, nothing deploys
 - Test coverage below 100% → pipeline fails, nothing deploys
 
-This means code quality standards are enforced by infrastructure, not by convention.
+This means code quality standards are enforced by infrastructure, not by
+convention.
 
 ---
 
@@ -239,14 +252,14 @@ This means code quality standards are enforced by infrastructure, not by convent
 ### Monitoring and Troubleshooting
 
 ```bash
-# Real-time pod logs
-kubectl logs <pod-name>
+# Session into a running instance (no SSH)
+aws ssm start-session --target <instance-id>
 
-# Pod status and events
-kubectl describe pod <pod-name>
+# Application logs
+docker logs <container-id>
 
 # Deployment status
-kubectl rollout status deployment/appointments-deployment
+aws deploy get-deployment --deployment-id <id>
 
 # ALB target health
 aws elbv2 describe-target-health --target-group-arn <arn>
@@ -254,12 +267,9 @@ aws elbv2 describe-target-health --target-group-arn <arn>
 
 ### Scaling
 
-The EKS deployment is configured with 2 replicas behind the ALB. Scaling is a single manifest change:
-
-```yaml
-spec:
-  replicas: 4  # scale up as needed
-```
+Capacity is managed by the Auto Scaling Group CodeDeploy creates on each
+deployment. Scaling policy work is an active area — see the project's
+technical notes for the current state of seasonal/dynamic scaling.
 
 ---
 
@@ -274,17 +284,15 @@ spec:
 
 ### Operational Efficiency
 
-- Repeatable, documented deployment process for future clients
+- Repeatable, documented deployment process, proven across two different
+  compute architectures
 - Automated quality enforcement reduces bug escape rate to near zero
-- Infrastructure as code — entire system can be reproduced in a new AWS account
-- Full audit trail — every deployment is traceable to a specific commit
-
-### Operational Efficiency
-
+- Infrastructure as code (Terraform) — the entire system can be reproduced
+  in a new AWS account
+- Full audit trail — every deployment traceable to a specific commit
 - Zero manual deployment steps after initial setup
-- New features deployed in minutes, not hours
-- Rollback time reduced from hours (manual) to minutes (automated)
-- On-call burden reduced — pipeline catches issues before production
+- Rollback time reduced from hours (manual) to minutes (automated,
+  alarm-gated)
 
 ---
 
@@ -298,15 +306,22 @@ The automated system enables:
 - **Reduced staff workload** — no phone calls for appointment scheduling
 - **Improved customer satisfaction** — instant confirmation, no double-bookings
 - **Scalable infrastructure** — supports business growth without infrastructure changes
-- **Operational cost savings** — automated deployments reduce DevOps overhead
+- **Operational cost savings** — the EKS→EC2 migration alone cut estimated
+  run cost from ~$180-220/mo to ~$50-70/mo with no loss of HA characteristics
 
 ---
 
 ## Conclusion
 
-The delivered platform transforms a manually managed, error-prone process into a reliable, automated system. The hair salon client now has a professional booking platform with enterprise-grade reliability — a proven, repeatable cloud-native deployment blueprint built entirely on AWS-native services.
-
-Every design decision — IAM auth, multi-tag ECR strategy, separate buildspec files, dual rollback approach — was made with production reliability and operational simplicity as the primary goals.
+The delivered platform transforms a manually managed, error-prone process
+into a reliable, automated system live today on a cost-appropriate
+architecture. The hair salon client has a professional booking platform
+with enterprise-grade reliability — and the platform's own history (EKS
+built and proven, then migrated to EC2 after a real cost review) is itself
+evidence of the same judgment that shaped every other design decision here:
+IAM auth over passwords, immutable image tags, alarm-gated rollback,
+production reliability and operational simplicity as the primary goals
+throughout, not just at delivery.
 
 ---
 
