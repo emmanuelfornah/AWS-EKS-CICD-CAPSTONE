@@ -24,11 +24,22 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'change-me-in-production')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = ['*']
 
-CSRF_TRUSTED_ORIGINS = ['https://*.amazonaws.com', 'http://127.0.0.1', 'http://localhost', 'https://*.cloudfront.net/']
+# Django 4+ checks the request's Origin header against this list for any
+# POST over HTTPS — the custom domain has to be listed explicitly, a
+# wildcard on *.amazonaws.com/*.cloudfront.net doesn't cover it. Missing
+# entry here is what caused a real "CSRF verification failed: Origin
+# checking failed" on every booking form submission at the live domain.
+CSRF_TRUSTED_ORIGINS = [
+    'https://appointments.emmanuelfornah.com',
+    'https://*.amazonaws.com',
+    'https://*.cloudfront.net',
+    'http://127.0.0.1',
+    'http://localhost',
+]
 
 
 # Application definition
