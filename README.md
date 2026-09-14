@@ -147,7 +147,40 @@ migration): [`screenshots/`](screenshots/).
 - IMDSv2 enforced, EBS encrypted, images scanned on push
 - STRIDE threat model documented in `SECURITY.md`
 
-## Cost
+## Cost posture
+
+Cost was treated as a first-class design constraint here, not a
+line-item review after the fact — every major decision on this list was
+made by weighing dollar cost against the HA/functionality it actually
+bought:
+
+- **The EKS→EC2 migration itself** — the single biggest line item. EKS's
+  fixed ~$73/mo control-plane charge bought no HA guarantee an ASG + ALB
+  doesn't already provide at this traffic level; see
+  [Why the migration](#why-the-migration-eks--ec2) above.
+- **Graviton (t4g) instances** — better price-performance than
+  equivalent x86 instances for this workload; the BuildImage CodeBuild
+  project builds natively for ARM64 rather than paying the
+  cross-compilation cost to still end up on the more expensive family.
+- **gp3 over gp2/io-family EBS** — cheaper per-GB with better baseline
+  IOPS than gp2, no reason to pay for a higher storage tier this
+  workload doesn't need.
+- **Single-AZ RDS by default** — Multi-AZ RDS roughly doubles the
+  database cost; not turned on here because the compute tier already
+  provides multi-AZ HA and the DB isn't the current availability
+  bottleneck. A real production system with a stricter RPO would revisit
+  this specific tradeoff, not apply it blindly.
+- **DR kept pilot-light and build-on-demand, not always-on** — the full
+  cross-region design exists (`DR_RUNBOOK.md`) but isn't running, because
+  paying for a warm standby 24/7 isn't justified without a concrete
+  reason to demo or actually fail over to it.
+- **AWS Cost Optimization Hub enabled** — ongoing, automated
+  recommendation visibility rather than a one-time cost review.
+- **Seasonal auto-scaling** (currently disabled pending the Lambda
+  redesign noted above) — was designed to trim burst *capacity* down in
+  the slow season while keeping the HA floor (`min_size=2`) untouched,
+  the same "cut cost without cutting availability" principle as the
+  core migration, just at a smaller scale.
 
 | | EKS (Phase 1, torn down) | EC2 (Phase 2, live) |
 |---|---|---|
