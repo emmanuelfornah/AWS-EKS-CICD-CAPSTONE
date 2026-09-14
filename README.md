@@ -52,13 +52,15 @@ conversation, not this README).
 
 | Layer | Implementation |
 |---|---|
-| Compute | EC2 (Graviton/t4g) behind an ALB; CodeDeploy owns the Auto Scaling Group after first deploy (see note below) |
+| Compute | EC2 (Graviton/t4g), 2 instances across 2 AZs; CodeDeploy owns the Auto Scaling Group after first deploy (see note below) |
+| Load balancing | Application Load Balancer, internet-facing, health-checked target group, HTTP→HTTPS redirect |
+| DNS / TLS | Route 53 alias record → the ALB, ACM-issued certificate — `appointments.emmanuelfornah.com` over valid HTTPS |
+| Networking | Custom VPC, 3-tier subnet layout (public / app / data) across 2 AZs, security groups chained internet → ALB → app → RDS with no tier skipped, VPC Flow Logs |
 | Deployment | AWS CodeDeploy, blue/green with traffic control — new revision health-checked before taking production traffic |
 | Backend | Python 3.11, Django 5.0 |
 | Relational data | Amazon RDS MySQL — IAM database authentication, encrypted at rest |
 | NoSQL data | Amazon DynamoDB (salon announcements) — encrypted, point-in-time recovery |
 | Secrets | AWS Secrets Manager for the one app secret; RDS master credential generated/rotated by RDS itself |
-| Networking | Custom VPC, 3-tier subnets, security groups chained internet → ALB → app → RDS, VPC Flow Logs |
 | Access | SSM Session Manager only, IMDSv2 enforced |
 | CI/CD | GitHub → CodePipeline (CodeStarSourceConnection) → CodeBuild → CodeBuild → CodeDeploy |
 
