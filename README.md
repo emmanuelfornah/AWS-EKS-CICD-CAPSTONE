@@ -41,6 +41,18 @@ the breadth and the general case it's an instance of.
 - No SSH anywhere — access via SSM Session Manager only, IMDSv2 enforced
 - Every IAM policy scoped to a specific resource ARN, least-privilege throughout
 
+| Booking flow | Confirmed — live domain, valid HTTPS |
+|---|---|
+| ![Booking form](screenshots/ec2-live/01_live_app_booking_form.png) | ![Confirmed](screenshots/ec2-live/02_live_app_booking_confirmed.png) |
+
+| Pipeline — all 4 stages green | Blue/green traffic shift (0→2) |
+|---|---|
+| ![Pipeline green](screenshots/ec2-live/03_pipeline_all_stages_green.png) | ![Traffic shift](screenshots/ec2-live/04_codedeploy_bluegreen_traffic_shift.png) |
+
+| ALB — HTTPS listener | Deployment history |
+|---|---|
+| ![ALB](screenshots/ec2-live/05_alb_listeners_https.png) | ![Deploy history](screenshots/ec2-live/06_codedeploy_deployment_history.png) |
+
 Getting from a clean `terraform apply` to this actually being live took
 7 distinct, real bugs — IAM permission gaps CloudTrail had to reveal,
 an IMDS hop-limit issue specific to Docker, an RDS IAM-auth port bug
@@ -100,14 +112,8 @@ drove the migration decision below.
 | ![Coverage](screenshots/05_unit_test_coverage_100.png) | ![EKS verified](screenshots/20_eks_cluster_verified.png) |
 
 Full 30-image set (every CI/CD stage, both rollback methods, ALB
-migration): [`screenshots/`](screenshots/).
-
-> **Evidence gap, stated plainly:** the EC2/blue-green phase above is live
-> and verifiable by visiting the URL directly, but doesn't yet have its
-> own screenshot set the way the EKS phase does — that's a real gap, not
-> an oversight, and worth closing (a green pipeline run, the CodeDeploy
-> blue/green console view, the live app) before this README is considered
-> finished.
+migration): [`screenshots/`](screenshots/). EC2/blue-green phase
+evidence: [`screenshots/ec2-live/`](screenshots/ec2-live/).
 
 ## Why the migration (EKS → EC2)
 
