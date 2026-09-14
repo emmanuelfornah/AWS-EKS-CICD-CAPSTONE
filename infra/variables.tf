@@ -94,7 +94,7 @@ variable "github_repo_owner" {
 
 variable "github_repo_name" {
   type    = string
-  default = "AWS-EKS-CICD-CAPSTONE"
+  default = "deployment-evolution"
 }
 
 variable "github_branch" {
