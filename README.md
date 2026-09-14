@@ -199,6 +199,17 @@ bought:
 | RDS (single-AZ, small) | ~$15/mo | ~$15/mo |
 | **Total (estimated)** | **~$180-220/mo** | **~$50-70/mo** |
 
+**What the account is actually billed today, per Cost Explorer:** ~$0/mo
+for EC2, RDS, ALB, Route 53, and DynamoDB combined — this is AWS Free
+Tier coverage at this scale and account age, not a claim that the
+architecture itself costs nothing. The one real recurring line is the
+domain registration (~$16/yr). The `~$50-70/mo` estimate above is the
+honest number: what this architecture actually costs once Free Tier no
+longer applies, which is the figure that reflects the real design
+decisions (Graviton, gp3, single-AZ RDS) rather than a temporary subsidy.
+
+![Cost Explorer — actual spend](screenshots/ec2-live/08_cost_explorer_actual_spend.png)
+
 ## Local development
 
 Supports both local SQLite (default) and RDS via environment
