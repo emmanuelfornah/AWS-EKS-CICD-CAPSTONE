@@ -1,13 +1,21 @@
 # Deployment Evolution — from EKS to EC2 Blue/Green, for Real
 
-A cloud-native appointment scheduling platform (Python/Django, Docker,
-Amazon RDS + DynamoDB) that was **built twice, on purpose**: first on
-Amazon EKS to prove Kubernetes CI/CD end-to-end, then migrated to EC2 +
-CodeDeploy blue/green after a real cost/traffic review showed the
-control-plane cost bought no HA guarantee this workload needed. Both
-phases are real, evidenced, and documented below — this isn't a redo,
-it's the same engineering judgment call a team makes when a system
-outgrows (or never needed) its original compute choice.
+**Live today at [appointments.emmanuelfornah.com](https://appointments.emmanuelfornah.com)**
+— a highly-available appointment scheduling platform, entirely
+Terraform-provisioned: EC2 (Graviton) in a blue/green Auto Scaling
+Group across 2 AZs, a custom 3-tier VPC (public/app/data subnets), an
+Application Load Balancer with Route 53 + ACM in front of it, RDS with
+IAM database auth, and a full GitHub → CodePipeline → CodeBuild →
+CodeDeploy pipeline driving every deploy.
+
+It got here by a real architecture decision, not by accident: the
+platform (Python/Django, Docker, Amazon RDS + DynamoDB) was **built
+twice, on purpose** — first on Amazon EKS to prove Kubernetes CI/CD
+end-to-end, then migrated to this EC2 design after a cost/traffic
+review showed the control-plane cost bought no HA guarantee this
+workload needed. Both phases are real, evidenced, and documented below
+— this isn't a redo, it's the same judgment call a team makes when a
+system outgrows (or never needed) its original compute choice.
 
 **Status key**, used consistently through this README:
 - ✅ **Live** — deployed right now, linked, verifiable
