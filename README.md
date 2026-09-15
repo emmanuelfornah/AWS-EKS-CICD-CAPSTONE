@@ -1,5 +1,7 @@
 # Deployment Evolution — from EKS to EC2 Blue/Green, for Real
 
+**→ [Infrastructure code (Terraform)](infra/)** · **→ [Live app](https://appointments.emmanuelfornah.com)**
+
 **Live today at [appointments.emmanuelfornah.com](https://appointments.emmanuelfornah.com)**
 — a highly-available appointment scheduling platform, entirely
 Terraform-provisioned: EC2 (Graviton) in a blue/green Auto Scaling
